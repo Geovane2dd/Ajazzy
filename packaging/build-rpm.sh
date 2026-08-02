@@ -17,9 +17,16 @@ mkdir -p "$SRCROOT/ajazzy-$VERSION"
 git archive HEAD | tar -x -C "$SRCROOT/ajazzy-$VERSION"
 tar czf "$TOPDIR/SOURCES/ajazzy-$VERSION.tar.gz" -C "$SRCROOT" "ajazzy-$VERSION"
 
+# --nodeps: the actual build dependencies (gcc, gtk4-devel, etc) are
+# installed via apt in CI, under their Debian names -- rpm has no way to
+# know those satisfy the spec's BuildRequires (which use Fedora package
+# names) when it's not running on an rpm-based distro, so it would
+# otherwise refuse to build here even though everything it needs is
+# already present.
 rpmbuild \
     --define "_topdir $TOPDIR" \
     --define "_version $VERSION" \
+    --nodeps \
     -bb packaging/rpm/ajazzy.spec
 
 mkdir -p "$OUT"

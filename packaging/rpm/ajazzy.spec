@@ -2,7 +2,7 @@ Name:           ajazzy
 Version:        %{_version}
 Release:        1%{?dist}
 Summary:        Configure AJAZZ gaming mice on Linux
-License:        MIT
+License:        GPL-3.0-only
 Source0:        %{name}-%{version}.tar.gz
 BuildRequires:  gcc, gtk4-devel, libadwaita-devel, gettext
 Requires:       gtk4, libadwaita
@@ -39,6 +39,3 @@ install -Dm644 udev/71-ajazzy.rules %{buildroot}%{_prefix}/lib/udev/rules.d/71-a
 udevadm control --reload-rules || :
 
 %changelog
-* Releases are cut automatically by .github/workflows/release.yml -- see
-  the GitHub release notes for what changed in each version, this file
-  isn't kept up to date by hand.
