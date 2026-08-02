@@ -1,0 +1,12 @@
+# build output
+ajazzyctl
+ajazzy-gui
+*.o
+locale/*/LC_MESSAGES/*.mo
+dist/
+
+# editor/IDE cruft
+*.swp
+.vscode/
+messages.mo
+*~

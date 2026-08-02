@@ -1,0 +1,5 @@
+# Give the logged-in user direct access to the AJAZZ mouse's vendor HID
+# interface (hidraw) without needing root/sudo. Covers all VID/PID pairs
+# used by the AJ1xx/T500 family (from the Windows driver's config.xml).
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="248a", TAG+="uaccess"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="249a", TAG+="uaccess"

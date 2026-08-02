@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Ajazzy
+GenericName=Mouse Configuration
+Comment=Configure AJAZZ gaming mice on Linux
+Exec=ajazzy-gui
+Icon=io.github.ajazzy.Gui
+Terminal=false
+Categories=Utility;Settings;HardwareSettings;
+Keywords=mouse;gaming;dpi;rgb;ajazz;

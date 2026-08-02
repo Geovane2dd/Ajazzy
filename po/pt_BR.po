@@ -1,0 +1,624 @@
+# Brazilian Portuguese translation for ajazz-gui.
+msgid ""
+msgstr ""
+"Project-Id-Version: ajazz-gui\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-08-02 12:26-0300\n"
+"PO-Revision-Date: 2026-08-02 14:00-0300\n"
+"Last-Translator: ajazz-linux contributors\n"
+"Language-Team: Portuguese (Brazil)\n"
+"Language: pt_BR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: gui/main.c:203
+msgid "10 seconds"
+msgstr "10 segundos"
+
+#: gui/main.c:204
+msgid "30 seconds"
+msgstr "30 segundos"
+
+#: gui/main.c:205
+msgid "1 minute"
+msgstr "1 minuto"
+
+#: gui/main.c:206
+msgid "2 minutes"
+msgstr "2 minutos"
+
+#: gui/main.c:207
+msgid "5 minutes"
+msgstr "5 minutos"
+
+#: gui/main.c:208
+msgid "10 minutes"
+msgstr "10 minutos"
+
+#: gui/main.c:209
+msgid "20 minutes"
+msgstr "20 minutos"
+
+#: gui/main.c:210
+msgid "30 minutes"
+msgstr "30 minutos"
+
+#: gui/main.c:242
+msgid "Don't change"
+msgstr "Não alterar"
+
+#: gui/main.c:246
+msgid "Default (built-in click)"
+msgstr "Padrão (função original)"
+
+#: gui/main.c:250
+msgid "Rapid-fire (auto-click)"
+msgstr "Disparo rápido (clique automático)"
+
+#: gui/main.c:255
+msgid "Volume up"
+msgstr "Aumentar volume"
+
+#: gui/main.c:256
+msgid "Volume down"
+msgstr "Diminuir volume"
+
+#: gui/main.c:257
+msgid "Mute"
+msgstr "Mudo"
+
+#: gui/main.c:258
+msgid "Play / Pause"
+msgstr "Play / Pausar"
+
+#: gui/main.c:259
+msgid "Next track"
+msgstr "Próxima faixa"
+
+#: gui/main.c:260
+msgid "Previous track"
+msgstr "Faixa anterior"
+
+#: gui/main.c:261
+msgid "Stop"
+msgstr "Parar"
+
+#: gui/main.c:262
+msgid "Browser home"
+msgstr "Página inicial"
+
+#: gui/main.c:263
+msgid "Browser back"
+msgstr "Voltar"
+
+#: gui/main.c:264
+msgid "Browser forward"
+msgstr "Avançar"
+
+#: gui/main.c:265
+msgid "Refresh page"
+msgstr "Atualizar página"
+
+#: gui/main.c:266
+msgid "Bookmarks"
+msgstr "Favoritos"
+
+#: gui/main.c:275 gui/main.c:280 gui/main.c:284 gui/main.c:315 gui/main.c:320
+#: gui/main.c:324
+#, c-format
+msgid "Key %c"
+msgstr "Tecla %c"
+
+#: gui/main.c:297
+msgid "(none)"
+msgstr "(nenhum)"
+
+#: gui/main.c:302 gui/main.c:817
+msgid "Left click"
+msgstr "Clique esquerdo"
+
+#: gui/main.c:303 gui/main.c:817
+msgid "Right click"
+msgstr "Clique direito"
+
+#: gui/main.c:304 gui/main.c:817
+msgid "Middle click"
+msgstr "Clique do meio"
+
+#: gui/main.c:305
+msgid "Button 4"
+msgstr "Botão 4"
+
+#: gui/main.c:306
+msgid "Button 5"
+msgstr "Botão 5"
+
+#: gui/main.c:386
+msgid "Connected"
+msgstr "Conectado"
+
+#: gui/main.c:386 gui/main.c:574 gui/main.c:1979
+msgid "Disconnected"
+msgstr "Desconectado"
+
+#: gui/main.c:401
+msgid "No AJAZZ mouse found. Check the connection and permissions."
+msgstr "Nenhum mouse AJAZZ encontrado. Verifique a conexão e as permissões."
+
+#: gui/main.c:445
+msgid "DPI"
+msgstr "DPI"
+
+#: gui/main.c:446 gui/main.c:1350
+msgid "Report rate"
+msgstr "Taxa de resposta"
+
+#: gui/main.c:447 gui/main.c:1555
+msgid "RGB lighting"
+msgstr "Iluminação RGB"
+
+#: gui/main.c:448 gui/main.c:1381
+msgid "Sensor and power"
+msgstr "Sensor e energia"
+
+#: gui/main.c:449
+msgid "Button remapping"
+msgstr "Mapeamento de botões"
+
+#: gui/main.c:450
+msgid "Battery"
+msgstr "Bateria"
+
+#: gui/main.c:451
+msgid "Macros"
+msgstr "Macros"
+
+#: gui/main.c:458 gui/main.c:564 gui/tray.c:114
+msgid "Not connected"
+msgstr "Não conectado"
+
+#: gui/main.c:466 gui/tray.c:282
+msgid "No AJAZZ mouse detected"
+msgstr "Nenhum mouse AJAZZ detectado"
+
+#: gui/main.c:485
+msgid ""
+"This exact model hasn't been individually confirmed to work --\n"
+"it should, since every AJAZZ mouse we've looked at shares the\n"
+"same protocol, but please report back either way."
+msgstr ""
+"Esse modelo exato ainda não foi confirmado individualmente --\n"
+"deve funcionar, já que todo mouse AJAZZ que analisamos usa o\n"
+"mesmo protocolo, mas nos avise se funcionar ou não."
+
+#: gui/main.c:489
+msgid "Protocol confirmed against real hardware for this model."
+msgstr "Protocolo confirmado em hardware real para este modelo."
+
+#: gui/main.c:502
+#, c-format
+msgid "Battery: %s"
+msgstr "Bateria: %s"
+
+#: gui/main.c:508
+msgid "Battery: unknown"
+msgstr "Bateria: desconhecida"
+
+#: gui/main.c:531 gui/main.c:540
+msgid "Untested"
+msgstr "Não testado"
+
+#: gui/main.c:540
+msgid "Tested ✓"
+msgstr "Testado ✓"
+
+#: gui/main.c:586
+msgid "BATTERY"
+msgstr "BATERIA"
+
+#: gui/main.c:609
+msgid "Refresh"
+msgstr "Atualizar"
+
+#: gui/main.c:625
+msgid "Device details"
+msgstr "Detalhes do dispositivo"
+
+#: gui/main.c:626
+msgid "VID:PID"
+msgstr "VID:PID"
+
+#: gui/main.c:627
+msgid "Firmware id"
+msgstr "ID de firmware"
+
+#: gui/main.c:631
+msgid "Compatibility"
+msgstr "Compatibilidade"
+
+#: gui/main.c:651
+msgid "Known limitations"
+msgstr "Limitações conhecidas"
+
+#: gui/main.c:653
+msgid ""
+"- Macros support up to 3 key/button press+release actions per\n"
+"  button (a device-side limit on a single write); longer macros\n"
+"  need a multi-packet write that's experimental past that point.\n"
+"- Lighting effect names beyond \"off\", \"rainbow\" and \"constant\"\n"
+"  are not reliably distinguished -- some share the same wire command.\n"
+"- Lift-off distance may also control \"wake mouse on motion\" --\n"
+"  a capture of that toggle landed on the exact same byte.\n"
+"- The per-DPI-stage indicator light colour can be read back, but\n"
+"  the command to change it hasn't been captured yet."
+msgstr ""
+"- Macros suportam até 3 ações de tecla/botão (pressionar+soltar) por\n"
+"  botão (limite do dispositivo numa única gravação); macros maiores\n"
+"  precisam de uma gravação em vários pacotes, ainda experimental.\n"
+"- Efeitos de luz além de \"desligado\", \"arco-íris\" e \"constante\"\n"
+"  não são distinguidos com confiança -- alguns usam o mesmo comando.\n"
+"- A distância de lift-off pode também controlar \"acordar mouse com\n"
+"  movimento\" -- uma captura desse ajuste caiu exatamente no mesmo byte.\n"
+"- A cor do indicador de luz por estágio de DPI pode ser lida, mas o\n"
+"  comando para alterá-la ainda não foi capturado."
+
+#: gui/main.c:679 gui/main.c:711 gui/main.c:1235 gui/main.c:1250
+#: gui/main.c:1276 gui/main.c:1478 gui/main.c:1708 gui/main.c:1761
+msgid "Connect the mouse first."
+msgstr "Conecte o mouse primeiro."
+
+#: gui/main.c:684
+msgid "Button mapping reset to default."
+msgstr "Mapeamento de botões restaurado ao padrão."
+
+#: gui/main.c:687
+msgid "Failed to reset buttons."
+msgstr "Falha ao restaurar os botões."
+
+#: gui/main.c:696
+msgid "Reset all buttons?"
+msgstr "Restaurar todos os botões?"
+
+#: gui/main.c:697
+msgid "This clears every button remap and restores the factory defaults."
+msgstr "Isso apaga todo remapeamento e restaura o padrão de fábrica."
+
+#: gui/main.c:698
+msgid "Cancel"
+msgstr "Cancelar"
+
+#: gui/main.c:699
+msgid "Reset"
+msgstr "Restaurar"
+
+#: gui/main.c:715 gui/main.c:1742 gui/main.c:1765
+msgid "Could not read the current button table."
+msgstr "Não foi possível ler a tabela de botões atual."
+
+#: gui/main.c:745
+msgid "Nothing selected to change."
+msgstr "Nenhuma mudança selecionada."
+
+#: gui/main.c:748
+msgid "Buttons remapped."
+msgstr "Botões remapeados."
+
+#: gui/main.c:751
+msgid "Failed to apply the remap."
+msgstr "Falha ao aplicar o remapeamento."
+
+#: gui/main.c:801
+#, c-format
+msgid "Currently: %s"
+msgstr "Atualmente: %s"
+
+#: gui/main.c:805
+#, c-format
+msgid "Currently: plays a macro"
+msgstr "Atualmente: executa uma macro"
+
+#: gui/main.c:808
+#, c-format
+msgid "Currently: unrecognized code (0x%02x)"
+msgstr "Atualmente: código não reconhecido (0x%02x)"
+
+#: gui/main.c:817
+msgid "Back"
+msgstr "Voltar"
+
+#: gui/main.c:817
+msgid "Forward"
+msgstr "Avançar"
+
+#: gui/main.c:1053
+msgid "Button mapping"
+msgstr "Mapeamento de botões"
+
+#: gui/main.c:1055
+msgid ""
+"Pick a new function for each button, or click a number on the mouse to jump "
+"there."
+msgstr ""
+"Escolha uma nova função para cada botão, ou clique num número no\n"
+"desenho do mouse para ir direto até ele."
+
+#: gui/main.c:1064 gui/main.c:1796
+#, c-format
+msgid "Button %d"
+msgstr "Botão %d"
+
+#: gui/main.c:1070
+msgid "Fixed by the manufacturer"
+msgstr "Fixo de fábrica"
+
+#: gui/main.c:1090
+msgid "Rapid-fire interval"
+msgstr "Intervalo do disparo rápido"
+
+#: gui/main.c:1098
+msgid "Rapid-fire repeats"
+msgstr "Repetições do disparo rápido"
+
+#: gui/main.c:1121 gui/main.c:1588
+msgid "Apply"
+msgstr "Aplicar"
+
+#: gui/main.c:1126
+msgid "Reset all"
+msgstr "Restaurar tudo"
+
+#: gui/main.c:1163
+#, c-format
+msgid "DPI value (stage %d)"
+msgstr "Valor de DPI (estágio %d)"
+
+#: gui/main.c:1243
+msgid "DPI applied."
+msgstr "DPI aplicado."
+
+#: gui/main.c:1243
+msgid "Failed to apply DPI."
+msgstr "Falha ao aplicar o DPI."
+
+#: gui/main.c:1255
+msgid "Pick a report rate first."
+msgstr "Escolha uma taxa de resposta primeiro."
+
+#: gui/main.c:1260
+msgid "Report rate applied."
+msgstr "Taxa de resposta aplicada."
+
+#: gui/main.c:1262
+msgid "Failed to apply report rate."
+msgstr "Falha ao aplicar a taxa de resposta."
+
+#: gui/main.c:1280
+msgid "Could not read the current sensor settings."
+msgstr "Não foi possível ler as configurações atuais do sensor."
+
+#: gui/main.c:1296
+msgid "Sensor and power settings applied."
+msgstr "Configurações de sensor e energia aplicadas."
+
+#: gui/main.c:1298
+msgid "Failed to apply sensor settings."
+msgstr "Falha ao aplicar as configurações do sensor."
+
+#: gui/main.c:1307
+msgid "DPI sensitivity"
+msgstr "Sensibilidade de DPI"
+
+#: gui/main.c:1339
+msgid "Apply DPI"
+msgstr "Aplicar DPI"
+
+#: gui/main.c:1370
+msgid "Apply report rate"
+msgstr "Aplicar taxa de resposta"
+
+#: gui/main.c:1384
+msgid "Lift-off distance"
+msgstr "Distância de lift-off"
+
+#: gui/main.c:1385
+msgid "May also control \"wake mouse on motion\" -- see Home"
+msgstr "Pode também controlar \"acordar mouse com movimento\" -- veja a Início"
+
+#: gui/main.c:1388
+msgid "1 mm"
+msgstr "1 mm"
+
+#: gui/main.c:1389
+msgid "2 mm"
+msgstr "2 mm"
+
+#: gui/main.c:1400
+msgid "Auto-sleep timer"
+msgstr "Temporizador de suspensão automática"
+
+#: gui/main.c:1410
+msgid "Turn light off when idle"
+msgstr "Apagar a luz quando parado"
+
+#: gui/main.c:1414
+msgid "Apply sensor and power"
+msgstr "Aplicar sensor e energia"
+
+#: gui/main.c:1499
+msgid "Lighting applied."
+msgstr "Iluminação aplicada."
+
+#: gui/main.c:1501
+msgid "Failed to apply lighting."
+msgstr "Falha ao aplicar iluminação."
+
+#: gui/main.c:1557
+msgid ""
+"\"Off\", rainbow cycle and constant colour apply correctly, and reading back "
+"the current effect and its brightness/speed now works too -- all three "
+"confirmed against real hardware."
+msgstr ""
+"\"Desligado\", ciclo arco-íris e cor constante são aplicados corretamente, "
+"e ler de volta o efeito atual (com brilho/velocidade) também funciona -- "
+"os três confirmados em hardware real."
+
+#: gui/main.c:1560
+msgid "Effect"
+msgstr "Efeito"
+
+#: gui/main.c:1561
+msgid "Off"
+msgstr "Desligado"
+
+#: gui/main.c:1561
+msgid "Rainbow cycle"
+msgstr "Ciclo arco-íris"
+
+#: gui/main.c:1561
+msgid "Constant colour"
+msgstr "Cor constante"
+
+#: gui/main.c:1571
+msgid "Brightness"
+msgstr "Brilho"
+
+#: gui/main.c:1572
+msgid "0 to 4 (25% steps)"
+msgstr "0 a 4 (passos de 25%)"
+
+#: gui/main.c:1579
+msgid "Speed"
+msgstr "Velocidade"
+
+#: gui/main.c:1630
+msgid "plays a macro"
+msgstr "executa uma macro"
+
+#: gui/main.c:1630 gui/main.c:1810
+msgid "default"
+msgstr "padrão"
+
+#: gui/main.c:1647
+#, c-format
+msgid "Action %u"
+msgstr "Ação %u"
+
+#: gui/main.c:1684
+msgid "Remove this action"
+msgstr "Remover esta ação"
+
+#: gui/main.c:1728
+msgid "Pick at least one action."
+msgstr "Escolha ao menos uma ação."
+
+#: gui/main.c:1732
+msgid "Macro is too long to encode."
+msgstr "A macro é longa demais para codificar."
+
+#: gui/main.c:1735
+msgid "Failed to write macro content."
+msgstr "Falha ao gravar o conteúdo da macro."
+
+#: gui/main.c:1750
+msgid "Macro saved to button."
+msgstr "Macro salva no botão."
+
+#: gui/main.c:1753
+msgid "Failed to assign the macro to the button."
+msgstr "Falha ao atribuir a macro ao botão."
+
+#: gui/main.c:1773
+msgid "Button reset to default."
+msgstr "Botão restaurado ao padrão."
+
+#: gui/main.c:1776
+msgid "Failed to reset the button."
+msgstr "Falha ao restaurar o botão."
+
+#: gui/main.c:1785
+msgid "Button"
+msgstr "Botão"
+
+#: gui/main.c:1786
+msgid "Choose which button plays the macro below."
+msgstr "Escolha qual botão executa a macro abaixo."
+
+#: gui/main.c:1825 gui/main.c:2063
+msgid "Macro"
+msgstr "Macro"
+
+#: gui/main.c:1827
+msgid ""
+"Actions are played in order, each as press-then-release, with the same delay "
+"between every step."
+msgstr ""
+"As ações são executadas em ordem, cada uma como pressionar-e-soltar, com "
+"o mesmo atraso entre cada passo."
+
+#: gui/main.c:1832
+msgid "Add action"
+msgstr "Adicionar ação"
+
+#: gui/main.c:1839
+msgid ""
+"More than 3 actions needs a multi-packet write that isn't independently\n"
+"confirmed the way the rest of this app's protocol is -- test the button\n"
+"afterward to make sure it plays back correctly."
+msgstr ""
+"Mais de 3 ações precisa de uma gravação em vários pacotes, que não foi\n"
+"confirmada de forma independente como o resto do protocolo -- teste o\n"
+"botão depois para garantir que ele reproduz certo."
+
+#: gui/main.c:1856
+msgid "Delay between steps"
+msgstr "Atraso entre os passos"
+
+#: gui/main.c:1857
+msgid "Milliseconds"
+msgstr "Milissegundos"
+
+#: gui/main.c:1864
+msgid "Save to button"
+msgstr "Salvar no botão"
+
+#: gui/main.c:1869
+msgid "Reset button to default"
+msgstr "Restaurar botão ao padrão"
+
+#: gui/main.c:1929 gui/main.c:2042 gui/main.c:2070 gui/main.c:2082
+#: gui/main.c:2107
+msgid "Ajazzy"
+msgstr "Ajazzy"
+
+#: gui/main.c:1932
+msgid "AJAZZ mouse configurator"
+msgstr "Configurador de mouse AJAZZ"
+
+#: gui/main.c:2059
+msgid "Home"
+msgstr "Início"
+
+#: gui/main.c:2060
+msgid "Buttons"
+msgstr "Botões"
+
+#: gui/main.c:2061
+msgid "Mouse settings"
+msgstr "Configurações do mouse"
+
+#: gui/main.c:2062
+msgid "Lighting"
+msgstr "Iluminação"
+
+#: gui/tray.c:105
+msgid "Open Ajazzy"
+msgstr "Abrir Ajazzy"
+
+#: gui/tray.c:118
+msgid "Refresh now"
+msgstr "Atualizar agora"
+
+#: gui/tray.c:122
+msgid "Quit"
+msgstr "Sair"

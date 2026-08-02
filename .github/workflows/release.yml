@@ -1,0 +1,91 @@
+name: Build and release
+
+# Runs on every push to main: bumps the patch version, builds ajazzyctl
+# and ajazzy-gui, packages a .deb, an .rpm, and two standalone tarballs
+# (CLI-only, GUI-only), and publishes it all as a new GitHub release.
+#
+# This is push-triggered on purpose, per project policy: every commit
+# that lands on main is a release. If that turns out to be too noisy,
+# switch the `on:` block below to tag-triggered (`push: tags: ['v*']`)
+# and cut releases by hand instead.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libgtk-4-dev libadwaita-1-dev gettext rpm
+
+      - name: Compute next version
+        id: version
+        run: |
+          latest=$(git tag -l 'v*' --sort=-v:refname | head -n1)
+          if [ -z "$latest" ]; then
+            next=v0.1.0
+          else
+            IFS='.' read -r major minor patch <<< "${latest#v}"
+            next="v${major}.${minor}.$((patch + 1))"
+          fi
+          echo "tag=$next" >> "$GITHUB_OUTPUT"
+          echo "version=${next#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        run: make
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          packaging/build-deb.sh "${{ steps.version.outputs.version }}" dist
+          packaging/build-rpm.sh "${{ steps.version.outputs.version }}" dist
+          packaging/build-tarballs.sh "${{ steps.version.outputs.version }}" dist
+
+      - name: Write release notes
+        run: |
+          VER="${{ steps.version.outputs.version }}"
+          REPO="${{ github.repository }}"
+          {
+            echo "## Install"
+            echo
+            echo "**Debian / Ubuntu:**"
+            echo '```sh'
+            echo "curl -LO https://github.com/$REPO/releases/download/v$VER/ajazzy_${VER}_amd64.deb"
+            echo "sudo apt install ./ajazzy_${VER}_amd64.deb"
+            echo '```'
+            echo
+            echo "**Fedora / RHEL:**"
+            echo '```sh'
+            echo "curl -LO https://github.com/$REPO/releases/download/v$VER/ajazzy-${VER}-1.x86_64.rpm"
+            echo "sudo dnf install ./ajazzy-${VER}-1.x86_64.rpm"
+            echo '```'
+            echo
+            echo "Both install the CLI (\`ajazzyctl\`), the GUI (\`ajazzy-gui\`), the desktop entry, and the udev rule that lets the GUI talk to the mouse without sudo -- unplug and replug the mouse (or log out/in) after installing so the new rule takes effect."
+            echo
+            echo "**Just the binary:** grab \`ajazzy-cli-${VER}-linux-x86_64.tar.gz\` or \`ajazzy-gui-${VER}-linux-x86_64.tar.gz\` below and copy the \`71-ajazzy.rules\` file inside it to \`/etc/udev/rules.d/\` yourself."
+          } > dist/RELEASE_NOTES.md
+
+      - name: Tag
+        run: |
+          git tag "${{ steps.version.outputs.tag }}"
+          git push origin "${{ steps.version.outputs.tag }}"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            dist/*.deb dist/*.rpm dist/*.tar.gz \
+            --title "Ajazzy ${{ steps.version.outputs.tag }}" \
+            --notes-file dist/RELEASE_NOTES.md
