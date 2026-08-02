@@ -213,7 +213,7 @@ static const struct { const char *label; int seconds; } sleep_presets[] = {
 enum { KF_SKIP, KF_RESET, KF_CONSUMER, KF_KEYBOARD, KF_FIRE };
 
 typedef struct {
-    char label[24];
+    char label[48];
     int kind;
     uint16_t code;
 } key_function_t;
@@ -226,7 +226,7 @@ static size_t n_key_functions;
  * editor's per-step dropdowns. Index 0 is always "(none)". */
 enum { MA_NONE, MA_KEY, MA_BUTTON };
 typedef struct {
-    char label[24];
+    char label[48];
     int kind;
     uint16_t code; /* HID keycode, or mouse button bit (1,2,4,8,16) */
 } macro_action_t;
@@ -239,15 +239,15 @@ static void init_key_functions(void)
 {
     size_t i = 0;
 
-    strcpy(key_functions[i].label, _("Don't change"));
+    g_strlcpy(key_functions[i].label, _("Don't change"), sizeof(key_functions[i].label));
     key_functions[i].kind = KF_SKIP;
     i++;
 
-    strcpy(key_functions[i].label, _("Default (built-in click)"));
+    g_strlcpy(key_functions[i].label, _("Default (built-in click)"), sizeof(key_functions[i].label));
     key_functions[i].kind = KF_RESET;
     i++;
 
-    strcpy(key_functions[i].label, _("Rapid-fire (auto-click)"));
+    g_strlcpy(key_functions[i].label, _("Rapid-fire (auto-click)"), sizeof(key_functions[i].label));
     key_functions[i].kind = KF_FIRE;
     i++;
 
@@ -266,7 +266,7 @@ static void init_key_functions(void)
         {N_("Bookmarks"),     AJAZZ_USAGE_AC_BOOKMARKS},
     };
     for (size_t c = 0; c < G_N_ELEMENTS(consumer); c++, i++) {
-        strncpy(key_functions[i].label, gettext(consumer[c].label), sizeof(key_functions[i].label) - 1);
+        g_strlcpy(key_functions[i].label, gettext(consumer[c].label), sizeof(key_functions[i].label));
         key_functions[i].kind = KF_CONSUMER;
         key_functions[i].code = consumer[c].usage;
     }
@@ -294,7 +294,7 @@ static void init_macro_actions(void)
 {
     size_t i = 0;
 
-    strcpy(macro_actions[i].label, _("(none)"));
+    g_strlcpy(macro_actions[i].label, _("(none)"), sizeof(macro_actions[i].label));
     macro_actions[i].kind = MA_NONE;
     i++;
 
@@ -306,7 +306,7 @@ static void init_macro_actions(void)
         {N_("Button 5"),     16},
     };
     for (size_t b = 0; b < G_N_ELEMENTS(buttons); b++, i++) {
-        strncpy(macro_actions[i].label, gettext(buttons[b].label), sizeof(macro_actions[i].label) - 1);
+        g_strlcpy(macro_actions[i].label, gettext(buttons[b].label), sizeof(macro_actions[i].label));
         macro_actions[i].kind = MA_BUTTON;
         macro_actions[i].code = buttons[b].bit;
     }
