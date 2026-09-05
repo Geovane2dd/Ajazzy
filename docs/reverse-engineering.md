@@ -38,7 +38,7 @@ Sent as `[queryId, 0x00, 0x00, 0x00, 0, 0, ...]`. The device replies with the sa
 | `0x11` | Button/key mapping table (see below) |
 | `0x12` | Report rate — see "Report rate and lighting readback" below |
 | `0x13` | DPI value table, active stage included (see below) |
-| `0x14` | Per-DPI-stage indicator colour table. Reply is `opcode/3` raw RGB triples back to back, no header. A live reply decoded to exactly 6 colours — red, green, blue, cyan, yellow, magenta — one per DPI stage, matching the mouse's actual behaviour (LED colour follows the active stage). Matches the firmware's own debug strings `cmd get dpi color` / `set dpi color`. The SET side for this table hasn't been captured yet. |
+| `0x14` | Per-DPI-stage indicator colour table. Reply is `opcode/3` raw RGB triples back to back, no header. A live reply decoded to exactly 6 colours — red, green, blue, cyan, yellow, magenta — one per DPI stage, matching the mouse's actual behaviour (LED colour follows the active stage). Matches the firmware's own debug strings `cmd get dpi color` / `set dpi color`. The SET side for this table has never been seen on the wire, but see the family `0x04` section below for a decompiled reconstruction. |
 | `0x15` | RGB lighting effect state — see "Report rate and lighting readback" below |
 | `0x16` | Unidentified |
 | `0x17` | Sensor/lift-off settings |
@@ -50,6 +50,7 @@ Sent as `[queryId, 0x00, 0x00, 0x00, 0, 0, ...]`. The device replies with the sa
 |---|---|---|
 | `0x02` | `0x01` | Report rate. `payload[0]` = polling interval in milliseconds (8/4/2/1 for 125/250/500/1000 Hz). Does not touch DPI stage. |
 | `0x03` | `0x25` | Full DPI table rewrite, active stage included (see below) — this is also how active DPI stage is switched, there's no separate "just switch stage" command |
+| `0x04` | `0x12` | Per-DPI-stage indicator LED colour, all 6 stages: 18 bytes = 6×`{R,G,B}` triples in stage order — see below |
 | `0x05` | `0x02` | All-zero payload — turns lighting off |
 | `0x05` | `0x05` | Constant light: `payload[0]=0x03` (constant), `payload[1] = (brightness << 4) \| 0x02` (brightness 0-4), `payload[2]=0xff` (constant) |
 | `0x05` | `0x18` | RGB rainbow effect: `payload[0]=0x02`, `payload[1] = (brightness << 4) \| speed` (both 0-4), `payload[2]=0x07` (7 colours follow), then 7×3 bytes of RGB (fixed palette: red/green/blue/cyan/yellow/magenta/white) |
@@ -73,7 +74,29 @@ payload[25..26] unused, always zero
 
 Confirmed with a capture of switching active stage from 1 to 5: five family `0x03` writes with `payload[0]` = `0x05, 0x15, 0x25, 0x35, 0x45` in order, high nibble tracking the stage. None of those writes touched family `0x02`.
 
-Round-tripped on real hardware: write a value, read it back, matches — across DPI, report rate, and lift-off.
+Round-tripped on real hardware: write a value, read it back, matches — across DPI, report rate, and lift-off. **Lift-off distance specifically was round-tripped with this project's own driver, not observed being set from the official Windows driver's UI** -- decompiling that driver shows `DeviceMainDlg::SetMouseSensorLiftData` (the function that writes `liftoff_height` on family `0x07`/opcode `0x04`) exists, but no `OnLift...`/`GetLift...` UI message handler does, for the AJ179 V2 MAX. The mouse genuinely accepts and stores the byte -- it's just not a control the official app exposes for this model, so treat it as an extra capability this project surfaces rather than a like-for-like port of an official feature.
+
+## Setting the per-DPI-stage indicator colour (family `0x04`)
+
+Unlike everything else in this document, this one was **not** found in a USB capture — no capture ever caught the official driver actually writing a new colour. It comes from decompiling `AJAZZ Driver (X).exe` with Ghidra (the installer ships full PDB debug symbols for both the main EXE and `MUI.dll`, so this isn't blind disassembly — function and variable names came straight from Microsoft's own symbol format). Confirmed working against a real AJ179 V2 MAX: `dpicolor set` changed the colour, `dpicolor list` read the new value back, and the mouse's actual indicator LED changed too.
+
+**Unreliable over the 2.4G dongle interface specifically.** With the mouse's charge cable plugged in *and* its 2.4G dongle still paired, both a `USB`-mode and a `2.4G`-mode hidraw node exist at once. Tested live: sending this SET over the dongle node gets acked (`ajazz_send_and_wait` returns success) but never actually takes -- reading query `0x14` back afterward, even a full second later, comes back all-zero every time. The exact same SET/GET round-trips correctly, immediately, over the `USB` node. This is why `ajazz_open()` prefers a `"USB"` candidate over a `"2.4G"` one when both are present (see `protocol/transport.c`) -- it was briefly the other way around (preferring `2.4G`, to avoid the charge-current-skewed battery reading over USB -- see the battery section above), which silently broke DPI colour and possibly other config writes whenever the mouse was charging with the dongle still in. General command reliability wins; the battery-reading tradeoff is limited to running a bit high while actively charging, which is already surfaced via `dev.charging`/the "(charging)" label rather than being silently wrong.
+
+`DeviceMainDlg::SetMouseDPIColorData` is the function behind the DPI colour picker UI. For `this->m_device_type < 0xc9` (which should cover the AJ179 V2 MAX, since every other command it uses matches this driver's `DriverComm::SetDeviceData` interrupt-report path rather than the `SetFeatureReport` path the `else` branch takes for other device families), it builds a 32-byte report by hand:
+
+```
+byte 0   0x04     family
+byte 1   0x00     always zero
+byte 2   0x01     mode = SET
+byte 3   0x12     opcode = 18 (payload byte count: 6 stages * 3)
+byte 4.. 18 bytes: 6 back-to-back {R, G, B} triples, one per DPI stage,
+         pulled from the driver's per-profile SQLite config
+         (columns dpi_group0_rgb .. dpi_group5_rgb, decoded from a
+         packed Windows COLORREF integer: R = value & 0xFF,
+         G = (value >> 8) & 0xFF, B = (value >> 16) & 0xFF)
+```
+
+This is exactly the mirror image of the `0x14` GET reply's shape. Implemented as `AJAZZ_FAM_DPI_COLOR` / `ajazz_build_set_dpi_colors()`, exposed as `ajazzyctl dpicolor set <1-6> <RRGGBB>`.
 
 ## The button/key mapping table
 
@@ -107,7 +130,7 @@ Macros are stored on the device, not played back by the Windows app in software.
 
 ### Macro content — family `0x08`
 
-The opcode byte here is the number of payload bytes actually used, not a fixed sub-command id. `payload[0]` is a constant `0x03`, followed by up to six 4-byte steps: `[kind, delay_ms, 0x00, value]`.
+The opcode byte here is the number of payload bytes actually used, not a fixed sub-command id. `payload[0]` is a constant `0x03`, followed by up to six 4-byte steps: `[kind, delay_lo, delay_hi, value]`.
 
 | kind | meaning |
 |---|---|
@@ -116,11 +139,26 @@ The opcode byte here is the number of payload bytes actually used, not a fixed s
 | `0x30` | keyboard key pressed |
 | `0xb0` | keyboard key released (`0x30 \| 0x80`) |
 
-`delay_ms` is the pause in milliseconds after that step (confirmed with both `10` and `20` in different captures). `value` is the same per-button bit flag as the key table (`1`=button1, `2`=button2, `4`=button3, ...) for mouse steps, or a USB HID Keyboard Page usage code for key steps.
+`delay_lo`/`delay_hi` together are a **16-bit little-endian** pause in milliseconds after that step (0-65535ms), not a 1-byte delay plus a constant byte -- every capture so far happened to use delays under 256ms (`10`/`20`), so the high byte always read `0x00` and looked constant until decompiling the official driver's `DeviceMainDlg::GetMouseMacroData` (see below) showed it filling both bytes from a 16-bit value. `value` is the same per-button bit flag as the key table (`1`=button1, `2`=button2, `4`=button3, ...) for mouse steps, or a USB HID Keyboard Page usage code for key steps.
 
 Every macro follows a down → delay → up → delay shape per action. A delay-only macro produces just the constant `0x03` byte and nothing else — there's no way to represent a standalone delay with no action attached.
 
-Capacity: 27-byte payload = 1 constant byte + up to 6 four-byte steps = 3 press+release actions per macro in one report. One capture of a longer macro showed a different header shape (`mode` `0x02` then `0x12`, with the tail of one packet's payload reappearing at the start of the next) suggesting a chunked/continuation transfer, but two data points aren't enough to pin the addressing scheme down. `AJAZZ_MACRO_MAX_STEPS` reflects the single-packet limit.
+Capacity: 27-byte payload = 1 constant byte + up to 6 four-byte steps = 3 press+release actions per macro in one report. Longer macros use a chunked/continuation transfer — see the next section.
+
+### Macro content, chunked (macros over 3 actions)
+
+Reconstructed by decompiling `DeviceMainDlg::SetMouseKeyMacroData(int, int)` (the 2-argument overload, distinct from the no-argument one that rewrites the whole key table) and the `DeviceMainDlg::GetMouseMacroData` helper it calls to serialize a macro's steps into bytes. Not independently confirmed against a wire capture past 2 chunks, but this is straight from the vendor's own compiled logic rather than extrapolation.
+
+The full content is one byte stream: `[0x03, step0, step1, ...]` (steps in the 4-byte shape above). That stream is split into `AJAZZ_PAYLOAD_LEN`-byte (27) pieces **without** aligning to step boundaries — a step's bytes can straddle a chunk boundary, which is why an earlier capture showed "the tail of one packet's payload reappearing at the start of the next". Each chunk is sent as its own family `0x08` report:
+
+```
+mode    (chunk_index << 4) | total_chunks   -- both counted so a 2-chunk
+                                                transfer sends mode 0x02 then 0x12
+opcode  this chunk's byte count (27 for every chunk but the last)
+payload this chunk's slice of the byte stream
+```
+
+Both nibbles cap at 15, so the wire format tops out at 15 chunks (`AJAZZ_MACRO_MAX_CHUNKS`) — `AJAZZ_MACRO_MAX_CHUNKED_STEPS` in `protocol/hid.h` is derived from that. Whether the mouse's onboard macro memory actually holds a macro that long is untested; a device-side limit below the wire-format ceiling would show up as the mouse rejecting or truncating playback, not as a bug in the write itself.
 
 ### Assigning a macro to a button
 
@@ -128,7 +166,20 @@ A second write to the key table marks a slot's marker as `0x90` with a constant 
 
 ## The battery query
 
-Query `0x20` returns `[level, mode, 0, 0, ...]`. Not a calibrated percentage — the Windows UI shows a 4-bar icon, not a number. `ajazz_battery_label()` buckets the raw byte into four tiers; only the top one (`>=25` = 4/4, confirmed against raw `0x21`/33 while fully charged) is anchored to a real data point, the other three boundaries are an evenly-spaced guess. Least-confident part of the protocol.
+Query `0x20` is unreliable: captures of the official driver's own traffic show it coming back either stuck on a stale value or with opcode `0x00` (zero meaningful payload bytes, i.e. no data). Don't use it.
+
+The real, live battery level lives at `AJAZZ_BATTERY_PAYLOAD_OFFSET` (`payload[9]`, wire byte 13) of the `0x10` device info reply, which this driver already queries anyway. This was found by watching that byte move (`0x1f` → `0x1e` → `0x25` → ...) in lockstep with the mouse's own unsolicited status push -- a `c0 <flag> <raw> 00 ...` report the mouse sends unprompted over the interrupt-in endpoint on dongle reconnect and on charge-cable plug/unplug. `<raw>` at byte 2 of that push and `payload[9]` of the next `0x10` reply always matched exactly across several captures.
+
+`<raw>` is a plain **0-100 percentage**, not some device-specific coded scale -- confirmed by decompiling the official Windows driver itself (with Ghidra, using the debug PDBs shipped next to `AJAZZ Driver (X).exe` and `MUI.dll`). The main EXE's `DeviceMainDlg::GetMouseStatusData` forwards the raw byte from the `0xc0` push straight into `DUI::BatteryCtrl::SetBatteryInfo(raw, charge_flag)` with zero conversion. The actual bar count is decided later, in `DUI::BatteryCtrl::DrawControl` (`MUI.dll`, offset `0x1f9b0`), which compares `this->m_battery_value` against `0x19`/`0x32`/`0x4b` (25/50/75) in even quarters:
+
+```
+raw >= 75           -> 4/4 bars
+50 <= raw < 75       -> 3/4 bars
+25 <= raw < 50       -> 2/4 bars
+raw < 25              -> 1/4 bar (drawn in red -- there's no distinct "empty" tier)
+```
+
+`ajazz_battery_label()` and the GUI's `battery_tier()` implement exactly this. `charge_flag` (the byte right after `raw` in the `0xc0` push) separately drives a small plug/charging icon overlay in `DrawControl` -- it doesn't change which quarter is lit.
 
 ## Report rate and lighting readback
 
@@ -140,7 +191,6 @@ Query `0x20` returns `[level, mode, 0, 0, ...]`. Not a calibrated percentage —
 
 ## What's still unknown
 
-- **Macros longer than 3 actions.** See the chunked-transfer hint under "Macros" above — not enough data to implement.
 - **RGB effect selection between "breathing" and "rainbow".** Both produce the identical `0x05`/`0x18` command shape, only brightness/speed differ. Either there's a real "effect id" byte not yet isolated, or the two effect names don't correspond to distinct wire commands.
 - **The "reacts to movement" lighting toggle.** A capture of this reused the same family `0x07`/opcode `0x04` sensor command as lift-off distance, landing on the same byte (`payload[1]`) lift-off level uses. Not implemented since writing it might corrupt the lift-off setting — needs a capture that isolates this control while lift-off is held constant.
 - **The per-DPI-stage indicator colour SET command.** Query `0x14`'s reply format is understood, but the write side hasn't been captured.

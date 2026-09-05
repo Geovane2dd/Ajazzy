@@ -55,6 +55,18 @@ const char *ajazz_lookup_name(uint16_t vid, uint16_t pid)
     return NULL;
 }
 
+const char *ajazz_lookup_mode(uint16_t vid, uint16_t pid)
+{
+    for (size_t g = 0; g < N_GROUPS; g++) {
+        for (size_t i = 0; i < groups[g].count; i++) {
+            const ajazz_device_entry_t *e = &groups[g].entries[i];
+            if (e->vid == vid && e->pid == pid)
+                return e->mode;
+        }
+    }
+    return NULL;
+}
+
 const char *ajazz_lookup_name_by_devid(const char *dev_id)
 {
     for (size_t g = 0; g < N_GROUPS; g++) {

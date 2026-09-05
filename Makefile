@@ -10,7 +10,7 @@ GUI_BIN = ajazzy-gui
 GETTEXT_DOMAIN = ajazzy
 
 GUI_CFLAGS := $(shell pkg-config --cflags gtk4 libadwaita-1 2>/dev/null) -DLOCALEDIR=\"$(CURDIR)/locale\" -DICONDIR=\"$(CURDIR)/gui/icons\"
-GUI_LIBS := $(shell pkg-config --libs gtk4 libadwaita-1 2>/dev/null)
+GUI_LIBS := $(shell pkg-config --libs gtk4 libadwaita-1 2>/dev/null) -lm
 HAVE_GUI := $(shell pkg-config --exists gtk4 libadwaita-1 2>/dev/null && echo yes)
 HAVE_GETTEXT := $(shell which msgfmt xgettext >/dev/null 2>&1 && echo yes)
 
@@ -28,13 +28,16 @@ endif
 $(CLI_BIN): cli/main.o $(CORE_OBJS)
 	$(CC) $(CFLAGS) -o $@ $^
 
-$(GUI_BIN): gui/main.c gui/tray.c gui/tray.h $(CORE_OBJS)
-	$(CC) $(CFLAGS) $(GUI_CFLAGS) -o $@ gui/main.c gui/tray.c $(CORE_OBJS) $(GUI_LIBS)
+GUI_SRCS = gui/main.c gui/page_home.c gui/page_mouse.c gui/page_lighting.c gui/page_buttons.c gui/page_macro.c gui/tray.c
+GUI_HDRS = gui/app.h gui/tray.h
+
+$(GUI_BIN): $(GUI_SRCS) $(GUI_HDRS) $(CORE_OBJS)
+	$(CC) $(CFLAGS) $(GUI_CFLAGS) -o $@ $(GUI_SRCS) $(CORE_OBJS) $(GUI_LIBS)
 
 # Regenerates po/ajazzy.pot from the source strings. Not run by
-# default -- only needed after adding/changing _() strings in gui/main.c or gui/tray.c.
+# default -- only needed after adding/changing _() strings in gui/*.c.
 pot:
-	xgettext --from-code=UTF-8 -k_ -kN_ -o po/$(GETTEXT_DOMAIN).pot gui/main.c gui/tray.c
+	xgettext --from-code=UTF-8 -k_ -kN_ -o po/$(GETTEXT_DOMAIN).pot $(GUI_SRCS)
 	@echo "now merge new strings into po/*.po with: msgmerge -U po/pt_BR.po po/$(GETTEXT_DOMAIN).pot"
 
 locales:

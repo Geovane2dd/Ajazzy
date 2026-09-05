@@ -12,6 +12,19 @@ typedef struct {
     char name[256];
     char dev_id[8];
     uint32_t confirmed;  /* AJAZZ_CAP_* bits actually tested for this model, 0 if unknown */
+    char mode[8];        /* "USB" or "2.4G", from the device table entry that
+                             matched the interface ajazz_open() actually
+                             picked. ajazz_open() prefers "USB" over "2.4G"
+                             when both are present -- SET/GET round-trips
+                             (confirmed live) are unreliable over the 2.4G
+                             dongle when the mouse is also on its charge
+                             cable, while USB round-trips correctly. */
+    int charging;        /* 1 if a "USB"-mode hidraw node was present at
+                             ajazz_open() time -- since mode is normally
+                             "USB" too in that situation (see above), this
+                             is mostly redundant with mode, but is scanned
+                             independently so it stays correct even if the
+                             preference above ever changes. */
 } ajazz_dev_t;
 
 /* Scans /dev/hidraw* for a known AJAZZ VID/PID whose report descriptor

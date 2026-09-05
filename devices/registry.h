@@ -8,6 +8,9 @@
  * tell them apart -- see ajazz_lookup_name_by_devid(). */
 const char *ajazz_lookup_name(uint16_t vid, uint16_t pid);
 
+/* "USB" or "2.4G" for a known vid/pid, or NULL if unrecognised. */
+const char *ajazz_lookup_mode(uint16_t vid, uint16_t pid);
+
 /* dev_id comes from the device itself (AJAZZ_QUERY_DEVICE_INFO) and is
  * what actually disambiguates the exact model. */
 const char *ajazz_lookup_name_by_devid(const char *dev_id);

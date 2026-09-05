@@ -17,6 +17,8 @@ static void print_usage(const char *prog)
         "  dpi list                    List the 6 DPI stages\n"
         "  dpi set <1-6> <value>       Set one stage's DPI (100-26000)\n"
         "  dpi active <1-6>            Switch the active DPI stage\n"
+        "  dpicolor list                List the 6 DPI stages' indicator LED colours\n"
+        "  dpicolor set <1-6> <RRGGBB> Set one stage's indicator LED colour\n"
         "  rate get                    Show the current report rate\n"
         "  rate set <125|250|500|1000> Set the report/polling rate\n"
         "  liftoff set <1|2>           Set lift-off distance (may also affect wake-on-motion)\n"
@@ -37,7 +39,7 @@ static void print_usage(const char *prog)
         "  keys list-functions         List the functions 'keys set' accepts\n"
         "  macro set <1-5> <delay ms> <action> [action...]\n"
         "                               Assign a press+release macro to a button (up to %d\n"
-        "                               actions, %d+ is an experimental multi-packet write);\n"
+        "                               actions, %d+ uses a multi-packet write);\n"
         "                               each action is a key (a-z, 0-9, hex code) or a mouse\n"
         "                               button (lclick, rclick, mclick, btn4, btn5)\n"
         "  watch                       Dump raw incoming reports (debugging)\n"
@@ -112,11 +114,16 @@ static int cmd_battery(void)
     if (open_device(&dev, AJAZZ_CAP_BATTERY, "battery") != 0) return 1;
 
     ajazz_report_t reply;
-    if (ajazz_query(&dev, AJAZZ_QUERY_BATTERY, &reply, 1000) == 0) {
-        printf("Battery: %s\n", ajazz_battery_label(reply.payload[0]));
-        printf("(raw sensor value: %d -- the original driver shows a 4-bar icon,\n"
-               "not a calibrated percentage, so these levels are an estimate)\n",
-               reply.payload[0]);
+    if (ajazz_query(&dev, AJAZZ_QUERY_DEVICE_INFO, &reply, 1000) == 0) {
+        uint8_t raw = reply.payload[AJAZZ_BATTERY_PAYLOAD_OFFSET];
+        printf("Battery: %d%% -- %s\n", raw, ajazz_battery_label(raw));
+        /* dev.charging is scanned independently of which interface we
+         * actually connected over -- see the comment on
+         * ajazz_dev_t::charging in protocol/transport.h. Gated on
+         * AJAZZ_CAP_BATTERY so a wired-only model (no battery at all)
+         * never prints this. */
+        if ((dev.confirmed & AJAZZ_CAP_BATTERY) && dev.charging)
+            printf("Charging (connected over USB).\n");
     } else {
         printf("Could not read battery level.\n");
     }
@@ -203,6 +210,64 @@ static int cmd_dpi_active(int stage)
 
     if (ajazz_send_and_wait(&dev, &req, 1000) == 0)
         printf("Active DPI stage set to %d.\n", stage);
+    else
+        fprintf(stderr, "No confirmation from the device.\n");
+
+    ajazz_close(&dev);
+    return 0;
+}
+
+static int cmd_dpicolor_list(void)
+{
+    ajazz_dev_t dev;
+    if (open_device(&dev, AJAZZ_CAP_DPI, "dpi") != 0) return 1;
+
+    ajazz_report_t reply;
+    if (ajazz_query(&dev, AJAZZ_QUERY_DPI_COLOR_TABLE, &reply, 1000) == 0) {
+        uint8_t colors[AJAZZ_DPI_STAGES][3];
+        ajazz_parse_dpi_color_table(&reply, colors);
+        for (int i = 0; i < AJAZZ_DPI_STAGES; i++)
+            printf("  Stage %d: #%02X%02X%02X\n", i + 1, colors[i][0], colors[i][1], colors[i][2]);
+    } else {
+        printf("Could not read the DPI colour table.\n");
+    }
+
+    ajazz_close(&dev);
+    return 0;
+}
+
+static int cmd_dpicolor_set(int stage, const char *hexcolor)
+{
+    if (stage < 1 || stage > AJAZZ_DPI_STAGES) {
+        fprintf(stderr, "Stage must be between 1 and %d\n", AJAZZ_DPI_STAGES);
+        return 1;
+    }
+    if (strlen(hexcolor) != 6 || strspn(hexcolor, "0123456789abcdefABCDEF") != 6) {
+        fprintf(stderr, "Colour must be 6 hex digits, e.g. ff00aa\n");
+        return 1;
+    }
+    unsigned int rgb = (unsigned int)strtoul(hexcolor, NULL, 16);
+
+    ajazz_dev_t dev;
+    if (open_device(&dev, AJAZZ_CAP_DPI, "dpi") != 0) return 1;
+
+    ajazz_report_t reply;
+    uint8_t colors[AJAZZ_DPI_STAGES][3];
+    if (ajazz_query(&dev, AJAZZ_QUERY_DPI_COLOR_TABLE, &reply, 1000) != 0) {
+        fprintf(stderr, "Could not read the current DPI colour table.\n");
+        ajazz_close(&dev);
+        return 1;
+    }
+    ajazz_parse_dpi_color_table(&reply, colors);
+    colors[stage - 1][0] = (uint8_t)(rgb >> 16);
+    colors[stage - 1][1] = (uint8_t)(rgb >> 8);
+    colors[stage - 1][2] = (uint8_t)rgb;
+
+    ajazz_report_t req;
+    ajazz_build_set_dpi_colors(&req, colors);
+
+    if (ajazz_send_and_wait(&dev, &req, 1000) == 0)
+        printf("Stage %d colour set to #%06X.\n", stage, rgb);
     else
         fprintf(stderr, "No confirmation from the device.\n");
 
@@ -721,8 +786,8 @@ static int cmd_macro_set(int slot_1based, int delay_ms, int argc, char **argv)
         fprintf(stderr, "Slot must be between 1 and %d\n", AJAZZ_KEY_SLOTS);
         return 1;
     }
-    if (delay_ms < 0 || delay_ms > 255) {
-        fprintf(stderr, "Delay must be between 0 and 255 ms.\n");
+    if (delay_ms < 0 || delay_ms > 65535) {
+        fprintf(stderr, "Delay must be between 0 and 65535 ms.\n");
         return 1;
     }
     if (argc < 1 || argc > AJAZZ_MACRO_MAX_CHUNKED_ACTIONS) {
@@ -731,8 +796,8 @@ static int cmd_macro_set(int slot_1based, int delay_ms, int argc, char **argv)
         return 1;
     }
     if (argc > AJAZZ_MACRO_MAX_STEPS / 2)
-        fprintf(stderr, "Note: macros over %d actions use an experimental multi-packet\n"
-                        "write -- see AJAZZ_MACRO_MAX_CHUNKED_STEPS in protocol/hid.h.\n",
+        fprintf(stderr, "Note: macros over %d actions use a multi-packet write -- see\n"
+                        "AJAZZ_MACRO_MAX_CHUNKED_STEPS in protocol/hid.h.\n",
                 AJAZZ_MACRO_MAX_STEPS / 2);
 
     ajazz_macro_step_t steps[AJAZZ_MACRO_MAX_CHUNKED_STEPS];
@@ -749,8 +814,8 @@ static int cmd_macro_set(int slot_1based, int delay_ms, int argc, char **argv)
         }
 
         if (is_button) {
-            steps[n_steps++] = (ajazz_macro_step_t){AJAZZ_MACRO_MOUSE_DOWN, (uint8_t)delay_ms, (uint8_t)btn};
-            steps[n_steps++] = (ajazz_macro_step_t){AJAZZ_MACRO_MOUSE_UP,   (uint8_t)delay_ms, (uint8_t)btn};
+            steps[n_steps++] = (ajazz_macro_step_t){AJAZZ_MACRO_MOUSE_DOWN, (uint16_t)delay_ms, (uint8_t)btn};
+            steps[n_steps++] = (ajazz_macro_step_t){AJAZZ_MACRO_MOUSE_UP,   (uint16_t)delay_ms, (uint8_t)btn};
         } else {
             uint8_t keycode;
             if (lookup_keycode(argv[i], &keycode) != 0) {
@@ -758,8 +823,8 @@ static int cmd_macro_set(int slot_1based, int delay_ms, int argc, char **argv)
                 print_macro_actions();
                 return 1;
             }
-            steps[n_steps++] = (ajazz_macro_step_t){AJAZZ_MACRO_KEY_DOWN, (uint8_t)delay_ms, keycode};
-            steps[n_steps++] = (ajazz_macro_step_t){AJAZZ_MACRO_KEY_UP,   (uint8_t)delay_ms, keycode};
+            steps[n_steps++] = (ajazz_macro_step_t){AJAZZ_MACRO_KEY_DOWN, (uint16_t)delay_ms, keycode};
+            steps[n_steps++] = (ajazz_macro_step_t){AJAZZ_MACRO_KEY_UP,   (uint16_t)delay_ms, keycode};
         }
     }
 
@@ -876,6 +941,11 @@ int main(int argc, char **argv)
             return cmd_dpi_set(atoi(argv[3]), atoi(argv[4]));
         if (strcmp(argv[2], "active") == 0 && argc == 4)
             return cmd_dpi_active(atoi(argv[3]));
+    } else if (strcmp(argv[1], "dpicolor") == 0 && argc >= 3) {
+        if (strcmp(argv[2], "list") == 0)
+            return cmd_dpicolor_list();
+        if (strcmp(argv[2], "set") == 0 && argc == 5)
+            return cmd_dpicolor_set(atoi(argv[3]), argv[4]);
     } else if (strcmp(argv[1], "rate") == 0 && argc >= 3) {
         if (strcmp(argv[2], "get") == 0)
             return cmd_rate_get();

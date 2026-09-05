@@ -8,6 +8,10 @@
 #define AJAZZ_PAYLOAD_LEN 27
 #define AJAZZ_DPI_STAGES 6
 
+/* Live battery raw level, found inside the 0x10 (device info) query
+ * reply's payload -- see the battery note above. */
+#define AJAZZ_BATTERY_PAYLOAD_OFFSET 9
+
 /*
  * Wire format, reverse engineered from USBPcap captures of the Windows
  * driver (AJAZZ Driver (X) 1.0.7.3) talking to an AJ179 V2 MAX (dev_id
@@ -27,8 +31,20 @@
  * AJAZZ_FAM_MACRO uses on the SET side). Query IDs: 0x10 device info,
  * 0x11 key table, 0x12 report rate, 0x13 DPI table (active stage
  * included), 0x14 per-DPI-stage LED colour table, 0x15 RGB effect state,
- * 0x16 unknown, 0x17 sensor/lift-off, 0x20 battery. No dedicated "active
- * DPI stage" query -- read it out of 0x13's payload.
+ * 0x16 unknown, 0x17 sensor/lift-off, 0x20 battery (unreliable, see
+ * below). No dedicated "active DPI stage" query -- read it out of 0x13's
+ * payload.
+ *
+ * Battery: query 0x20's payload isn't a live reading -- captures show it
+ * coming back stuck on a stale value, or with opcode 0 (no data at all).
+ * The real, live-updating battery level instead sits at
+ * AJAZZ_BATTERY_PAYLOAD_OFFSET (payload[9], wire byte 13) of the 0x10
+ * device info reply, which this driver already queries for dev_id. This
+ * was confirmed by watching it move (0x1f -> 0x1e -> 0x25) in lockstep
+ * with the mouse's own unsolicited "c0 <flag> <raw> 00..." status push
+ * (sent over the interrupt-in endpoint on dongle reconnect and on
+ * charge-cable plug/unplug) across several captures, both matching the
+ * official driver's on-screen bar count. See docs/reverse-engineering.md.
  *
  * Key table (family 0x09 SET / query 0x11 GET, opcode 0x0f): 27-byte
  * payload as nine 3-byte slots [marker][lo][hi]. Only the first five
@@ -55,6 +71,8 @@ enum {
     AJAZZ_FAM_REPORT_RATE  = 0x02, /* opcode 0x01: polling interval, see below */
     AJAZZ_FAM_DPI_TABLE    = 0x03, /* opcode 0x25: all 6 DPI stages, active
                                        stage in payload[0]'s high nibble */
+    AJAZZ_FAM_DPI_COLOR    = 0x04, /* opcode 0x12: per-DPI-stage indicator
+                                       LED colour table, see below */
     AJAZZ_FAM_MISC         = 0x05, /* opcode 0x05 constant-light brightness,
                                        0x18 rainbow/breathing, 0x02 off */
     AJAZZ_FAM_SENSOR       = 0x07, /* opcode 0x04: sleep timer, lift-off,
@@ -62,6 +80,22 @@ enum {
     AJAZZ_FAM_MACRO        = 0x08, /* opcode = length of used payload bytes */
     AJAZZ_FAM_KEY_TABLE    = 0x09, /* opcode 0x0f: button/key mapping table */
 };
+
+/* Per-DPI-stage indicator LED colour, SET side. Found by decompiling the
+ * official Windows driver (DeviceMainDlg::SetMouseDPIColorData) rather
+ * than a wire capture -- confirmed working against a real AJ179 V2 MAX
+ * (colour round-tripped through dpicolor set/list, and matched the
+ * mouse's actual LED). family 0x04, mode 0x01, opcode 0x12
+ * (18 = AJAZZ_DPI_STAGES * 3). payload is 6 back-to-back {R,G,B}
+ * triples, one per DPI stage in order -- the mirror image of
+ * AJAZZ_QUERY_DPI_COLOR_TABLE's (0x14) reply shape. */
+void ajazz_build_set_dpi_colors(ajazz_report_t *r, const uint8_t colors[AJAZZ_DPI_STAGES][3]);
+
+/* Parses a 0x14 query reply's payload (6 back-to-back {R,G,B} triples,
+ * one per DPI stage) into a plain array. GET side, unlike the SET
+ * command above, has been seen on the wire -- see hid.h's protocol
+ * comment block. */
+void ajazz_parse_dpi_color_table(const ajazz_report_t *r, uint8_t colors[AJAZZ_DPI_STAGES][3]);
 
 /* Report rate: family 0x02, opcode 0x01, payload[0] = interval in ms
  * (8/4/2/1 for 125/250/500/1000 Hz). This family is report rate only --
@@ -74,15 +108,29 @@ enum {
  * multi-report chunked transfer -- see AJAZZ_MACRO_MAX_CHUNKED_STEPS. */
 #define AJAZZ_MACRO_MAX_STEPS 6
 
-/* Chunked writes for macros past AJAZZ_MACRO_MAX_STEPS: mode becomes
- * (chunk_index << 4) | 0x02 and opcode is the byte count in that chunk.
- * Only ever seen two chunks in a capture, so anything past that is
- * extrapolation -- ajazz_build_macro_content_chunked() is experimental
- * beyond AJAZZ_MACRO_MAX_STEPS. The cap below is a nibble's worth of
- * chunk index, comfortably more than anyone needs, kept low to stay
- * close to what was actually observed. */
-#define AJAZZ_MACRO_MAX_CHUNKED_ACTIONS 10
-#define AJAZZ_MACRO_MAX_CHUNKED_STEPS (AJAZZ_MACRO_MAX_CHUNKED_ACTIONS * 2)
+/* Chunked writes for macros past AJAZZ_MACRO_MAX_STEPS: the byte stream
+ * `[0x03, step0, step1, ...]` (NOT step-aligned -- a step's bytes can
+ * straddle a chunk boundary) is split into AJAZZ_PAYLOAD_LEN-byte
+ * pieces. Each chunk's mode byte is (chunk_index << 4) | total_chunks
+ * (both 0-based/1-based respectively, so a 2-chunk transfer sends mode
+ * 0x02 then 0x12), and opcode is that chunk's byte count. Confirmed by
+ * decompiling the official driver's
+ * DeviceMainDlg::SetMouseKeyMacroData(int,int) overload -- earlier this
+ * was reconstructed from a single 2-chunk capture with the low nibble
+ * wrongly hardcoded to 0x02, which only worked by coincidence for
+ * exactly 2 chunks.
+ *
+ * The mode byte's nibbles cap both chunk_index and total_chunks at 15,
+ * so the wire format tops out at 15 chunks * AJAZZ_PAYLOAD_LEN bytes,
+ * minus the 1-byte header, divided into 4-byte steps. That wire-format
+ * ceiling is what the constants below reflect; the mouse's actual
+ * onboard macro memory limit is still untested past what's been tried
+ * by hand -- if the device rejects (or silently drops) a very long
+ * macro, that's a firmware limit below this ceiling, not a bug here. */
+#define AJAZZ_MACRO_MAX_CHUNKS 15
+#define AJAZZ_MACRO_MAX_CHUNKED_STEPS \
+    (((AJAZZ_MACRO_MAX_CHUNKS * AJAZZ_PAYLOAD_LEN) - 1) / 4)
+#define AJAZZ_MACRO_MAX_CHUNKED_ACTIONS (AJAZZ_MACRO_MAX_CHUNKED_STEPS / 2)
 
 /* standard USB HID keyboard report modifier bits, for
  * ajazz_key_slot_set_keyboard() */
@@ -257,9 +305,13 @@ typedef enum {
 } ajazz_macro_step_kind_t;
 
 typedef struct {
-    uint8_t kind;      /* an ajazz_macro_step_kind_t value */
-    uint8_t delay_ms;  /* pause after this step, in milliseconds */
-    uint8_t value;     /* mouse button bit, or USB HID keyboard usage code */
+    uint8_t kind;       /* an ajazz_macro_step_kind_t value */
+    uint16_t delay_ms;  /* pause after this step, in milliseconds -- 16-bit
+                            LE on the wire (bytes 1-2 of the step), NOT a
+                            1-byte delay plus a constant byte; confirmed by
+                            decompiling the official driver's
+                            DeviceMainDlg::GetMouseMacroData */
+    uint8_t value;      /* mouse button bit, or USB HID keyboard usage code */
 } ajazz_macro_step_t;
 
 /* Builds the macro-content SET report for up to AJAZZ_MACRO_MAX_STEPS
@@ -268,8 +320,10 @@ typedef struct {
 void ajazz_build_macro_content(ajazz_report_t *r, const ajazz_macro_step_t *steps, int n_steps);
 
 /* Same idea for up to AJAZZ_MACRO_MAX_CHUNKED_STEPS steps: one report if
- * it fits, chunked writes otherwise (experimental, see the comment on
- * AJAZZ_MACRO_MAX_CHUNKED_STEPS). `out` needs room for at least
+ * it fits, chunked writes otherwise (reconstructed from the official
+ * driver, not yet round-tripped against real hardware past a couple of
+ * chunks -- see the comment on AJAZZ_MACRO_MAX_CHUNKED_STEPS). `out`
+ * needs room for at least
  * (AJAZZ_MACRO_MAX_CHUNKED_STEPS * 4 + 1 + AJAZZ_PAYLOAD_LEN - 1) /
  * AJAZZ_PAYLOAD_LEN reports. Send them in order. Returns the report
  * count, or -1 if n_steps is over the limit. */
@@ -315,10 +369,14 @@ typedef struct {
 
 int ajazz_parse_led_mode(const ajazz_report_t *r, ajazz_led_state_t *out);
 
-/* Query 0x20's payload[0] isn't a calibrated percentage -- the Windows
- * driver shows a 4-bar icon, not a number. Only one data point is
- * confirmed (raw 0x21/33 = all 4 bars), so the top tier is real and the
- * other three boundaries below it are an evenly-spaced guess. */
+/* Takes the raw byte at AJAZZ_BATTERY_PAYLOAD_OFFSET in a 0x10 device
+ * info reply (NOT the broken 0x20 query -- see the note above). It IS a
+ * plain 0-100 percentage, split into even quarters -- confirmed by
+ * decompiling the official Windows driver (MUI.dll,
+ * DUI::BatteryCtrl::DrawControl @ 0x1f9b0), which compares
+ * this->m_battery_value against 0x19/0x32/0x4b (25/50/75) to pick how
+ * many of the 4 bars to fill. See docs/reverse-engineering.md's battery
+ * section. */
 const char *ajazz_battery_label(uint8_t raw);
 
 #endif

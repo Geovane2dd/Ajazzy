@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-02 12:26-0300\n"
+"POT-Creation-Date: 2026-09-05 13:16-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,581 +17,643 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: gui/main.c:203
-msgid "10 seconds"
-msgstr ""
-
-#: gui/main.c:204
-msgid "30 seconds"
-msgstr ""
-
-#: gui/main.c:205
-msgid "1 minute"
-msgstr ""
-
-#: gui/main.c:206
-msgid "2 minutes"
-msgstr ""
-
-#: gui/main.c:207
-msgid "5 minutes"
-msgstr ""
-
-#: gui/main.c:208
-msgid "10 minutes"
-msgstr ""
-
-#: gui/main.c:209
-msgid "20 minutes"
-msgstr ""
-
-#: gui/main.c:210
-msgid "30 minutes"
-msgstr ""
-
-#: gui/main.c:242
-msgid "Don't change"
-msgstr ""
-
-#: gui/main.c:246
-msgid "Default (built-in click)"
-msgstr ""
-
-#: gui/main.c:250
-msgid "Rapid-fire (auto-click)"
-msgstr ""
-
-#: gui/main.c:255
-msgid "Volume up"
-msgstr ""
-
-#: gui/main.c:256
-msgid "Volume down"
-msgstr ""
-
-#: gui/main.c:257
-msgid "Mute"
-msgstr ""
-
-#: gui/main.c:258
-msgid "Play / Pause"
-msgstr ""
-
-#: gui/main.c:259
-msgid "Next track"
-msgstr ""
-
-#: gui/main.c:260
-msgid "Previous track"
-msgstr ""
-
-#: gui/main.c:261
-msgid "Stop"
-msgstr ""
-
-#: gui/main.c:262
-msgid "Browser home"
-msgstr ""
-
-#: gui/main.c:263
-msgid "Browser back"
-msgstr ""
-
-#: gui/main.c:264
-msgid "Browser forward"
-msgstr ""
-
-#: gui/main.c:265
-msgid "Refresh page"
-msgstr ""
-
-#: gui/main.c:266
-msgid "Bookmarks"
-msgstr ""
-
-#: gui/main.c:275 gui/main.c:280 gui/main.c:284 gui/main.c:315 gui/main.c:320
-#: gui/main.c:324
-#, c-format
-msgid "Key %c"
-msgstr ""
-
-#: gui/main.c:297
-msgid "(none)"
-msgstr ""
-
-#: gui/main.c:302 gui/main.c:817
-msgid "Left click"
-msgstr ""
-
-#: gui/main.c:303 gui/main.c:817
-msgid "Right click"
-msgstr ""
-
-#: gui/main.c:304 gui/main.c:817
-msgid "Middle click"
-msgstr ""
-
-#: gui/main.c:305
-msgid "Button 4"
-msgstr ""
-
-#: gui/main.c:306
-msgid "Button 5"
-msgstr ""
-
-#: gui/main.c:386
+#: gui/main.c:176
 msgid "Connected"
 msgstr ""
 
-#: gui/main.c:386 gui/main.c:574 gui/main.c:1979
+#: gui/main.c:176 gui/main.c:306 gui/page_home.c:216
 msgid "Disconnected"
 msgstr ""
 
-#: gui/main.c:401
+#: gui/main.c:204
 msgid "No AJAZZ mouse found. Check the connection and permissions."
 msgstr ""
 
-#: gui/main.c:445
+#: gui/main.c:256 gui/main.c:379 gui/main.c:407 gui/main.c:419 gui/main.c:444
+msgid "Ajazzy"
+msgstr ""
+
+#: gui/main.c:259
+msgid "AJAZZ mouse configurator"
+msgstr ""
+
+#: gui/main.c:396
+msgid "Home"
+msgstr ""
+
+#: gui/main.c:397
+msgid "Buttons"
+msgstr ""
+
+#: gui/main.c:398
+msgid "Mouse settings"
+msgstr ""
+
+#: gui/main.c:399
+msgid "Lighting"
+msgstr ""
+
+#: gui/main.c:400 gui/page_macro.c:290
+msgid "Macro"
+msgstr ""
+
+#: gui/page_home.c:71
 msgid "DPI"
 msgstr ""
 
-#: gui/main.c:446 gui/main.c:1350
+#: gui/page_home.c:72 gui/page_mouse.c:297
 msgid "Report rate"
 msgstr ""
 
-#: gui/main.c:447 gui/main.c:1555
+#: gui/page_home.c:73 gui/page_lighting.c:305
 msgid "RGB lighting"
 msgstr ""
 
-#: gui/main.c:448 gui/main.c:1381
+#: gui/page_home.c:74 gui/page_mouse.c:328
 msgid "Sensor and power"
 msgstr ""
 
-#: gui/main.c:449
+#: gui/page_home.c:75
 msgid "Button remapping"
 msgstr ""
 
-#: gui/main.c:450
+#: gui/page_home.c:76
 msgid "Battery"
 msgstr ""
 
-#: gui/main.c:451
+#: gui/page_home.c:77
 msgid "Macros"
 msgstr ""
 
-#: gui/main.c:458 gui/main.c:564 gui/tray.c:114
+#: gui/page_home.c:84 gui/page_home.c:206 gui/tray.c:114
 msgid "Not connected"
 msgstr ""
 
-#: gui/main.c:466 gui/tray.c:282
+#: gui/page_home.c:93 gui/tray.c:282
 msgid "No AJAZZ mouse detected"
 msgstr ""
 
-#: gui/main.c:485
+#: gui/page_home.c:112
 msgid ""
 "This exact model hasn't been individually confirmed to work --\n"
 "it should, since every AJAZZ mouse we've looked at shares the\n"
 "same protocol, but please report back either way."
 msgstr ""
 
-#: gui/main.c:489
+#: gui/page_home.c:116
 msgid "Protocol confirmed against real hardware for this model."
 msgstr ""
 
-#: gui/main.c:502
+#: gui/page_home.c:143
 #, c-format
-msgid "Battery: %s"
+msgid "Battery: %d%% -- %s (charging)"
 msgstr ""
 
-#: gui/main.c:508
+#: gui/page_home.c:143
+#, c-format
+msgid "Battery: %d%% -- %s"
+msgstr ""
+
+#: gui/page_home.c:150
 msgid "Battery: unknown"
 msgstr ""
 
-#: gui/main.c:531 gui/main.c:540
+#: gui/page_home.c:173 gui/page_home.c:182
 msgid "Untested"
 msgstr ""
 
-#: gui/main.c:540
+#: gui/page_home.c:182
 msgid "Tested ✓"
 msgstr ""
 
-#: gui/main.c:586
+#: gui/page_home.c:228
 msgid "BATTERY"
 msgstr ""
 
-#: gui/main.c:609
+#: gui/page_home.c:246
+msgid "⚡ Charging"
+msgstr ""
+
+#: gui/page_home.c:259
 msgid "Refresh"
 msgstr ""
 
-#: gui/main.c:625
+#: gui/page_home.c:275
 msgid "Device details"
 msgstr ""
 
-#: gui/main.c:626
+#: gui/page_home.c:276
 msgid "VID:PID"
 msgstr ""
 
-#: gui/main.c:627
+#: gui/page_home.c:277
 msgid "Firmware id"
 msgstr ""
 
-#: gui/main.c:631
+#: gui/page_home.c:281
 msgid "Compatibility"
 msgstr ""
 
-#: gui/main.c:651
+#: gui/page_home.c:301
 msgid "Known limitations"
 msgstr ""
 
-#: gui/main.c:653
+#: gui/page_home.c:303
 msgid ""
-"- Macros support up to 3 key/button press+release actions per\n"
-"  button (a device-side limit on a single write); longer macros\n"
-"  need a multi-packet write that's experimental past that point.\n"
+"- Macros fit 3 key/button press+release actions per button in a\n"
+"  single write; longer macros (up to 50) use a multi-packet write.\n"
 "- Lighting effect names beyond \"off\", \"rainbow\" and \"constant\"\n"
 "  are not reliably distinguished -- some share the same wire command.\n"
 "- Lift-off distance may also control \"wake mouse on motion\" --\n"
-"  a capture of that toggle landed on the exact same byte.\n"
-"- The per-DPI-stage indicator light colour can be read back, but\n"
-"  the command to change it hasn't been captured yet."
+"  a capture of that toggle landed on the exact same byte."
 msgstr ""
 
-#: gui/main.c:679 gui/main.c:711 gui/main.c:1235 gui/main.c:1250
-#: gui/main.c:1276 gui/main.c:1478 gui/main.c:1708 gui/main.c:1761
+#: gui/page_mouse.c:20
+msgid "10 seconds"
+msgstr ""
+
+#: gui/page_mouse.c:21
+msgid "30 seconds"
+msgstr ""
+
+#: gui/page_mouse.c:22
+msgid "1 minute"
+msgstr ""
+
+#: gui/page_mouse.c:23
+msgid "2 minutes"
+msgstr ""
+
+#: gui/page_mouse.c:24
+msgid "5 minutes"
+msgstr ""
+
+#: gui/page_mouse.c:25
+msgid "10 minutes"
+msgstr ""
+
+#: gui/page_mouse.c:26
+msgid "20 minutes"
+msgstr ""
+
+#: gui/page_mouse.c:27
+msgid "30 minutes"
+msgstr ""
+
+#: gui/page_mouse.c:40
+#, c-format
+msgid "DPI value (stage %d)"
+msgstr ""
+
+#: gui/page_mouse.c:136 gui/page_mouse.c:155 gui/page_mouse.c:173
+#: gui/page_mouse.c:195 gui/page_lighting.c:206 gui/page_buttons.c:86
+#: gui/page_buttons.c:118 gui/page_macro.c:173 gui/page_macro.c:226
 msgid "Connect the mouse first."
 msgstr ""
 
-#: gui/main.c:684
+#: gui/page_mouse.c:144
+msgid "DPI applied."
+msgstr ""
+
+#: gui/page_mouse.c:144
+msgid "Failed to apply DPI."
+msgstr ""
+
+#: gui/page_mouse.c:166
+msgid "DPI colour applied."
+msgstr ""
+
+#: gui/page_mouse.c:166
+msgid "Failed to apply DPI colour."
+msgstr ""
+
+#: gui/page_mouse.c:178
+msgid "Pick a report rate first."
+msgstr ""
+
+#: gui/page_mouse.c:183
+msgid "Report rate applied."
+msgstr ""
+
+#: gui/page_mouse.c:185
+msgid "Failed to apply report rate."
+msgstr ""
+
+#: gui/page_mouse.c:199
+msgid "Could not read the current sensor settings."
+msgstr ""
+
+#: gui/page_mouse.c:215
+msgid "Sensor and power settings applied."
+msgstr ""
+
+#: gui/page_mouse.c:217
+msgid "Failed to apply sensor settings."
+msgstr ""
+
+#: gui/page_mouse.c:226
+msgid "DPI sensitivity"
+msgstr ""
+
+#: gui/page_mouse.c:258
+msgid "Apply DPI"
+msgstr ""
+
+#: gui/page_mouse.c:271
+msgid "DPI indicator colour"
+msgstr ""
+
+#: gui/page_mouse.c:273
+msgid "Colour of the DPI LED for each stage"
+msgstr ""
+
+#: gui/page_mouse.c:276
+#, c-format
+msgid "Stage %d"
+msgstr ""
+
+#: gui/page_mouse.c:317
+msgid "Apply report rate"
+msgstr ""
+
+#: gui/page_mouse.c:331
+msgid "Lift-off distance"
+msgstr ""
+
+#: gui/page_mouse.c:332
+msgid ""
+"Not in the official driver's UI for this mouse -- the firmware accepts it, "
+"AJAZZ's own app just doesn't expose it. May also control \"wake mouse on "
+"motion\" -- see Home"
+msgstr ""
+
+#: gui/page_mouse.c:335
+msgid "1 mm"
+msgstr ""
+
+#: gui/page_mouse.c:336
+msgid "2 mm"
+msgstr ""
+
+#: gui/page_mouse.c:347
+msgid "Auto-sleep timer"
+msgstr ""
+
+#: gui/page_mouse.c:357
+msgid "Turn light off when idle"
+msgstr ""
+
+#: gui/page_mouse.c:361
+msgid "Apply sensor and power"
+msgstr ""
+
+#: gui/page_lighting.c:144
+msgid "Software colour cycle stopped (mouse not responding)."
+msgstr ""
+
+#: gui/page_lighting.c:190
+msgid "Software breathing stopped (mouse not responding)."
+msgstr ""
+
+#: gui/page_lighting.c:219 gui/page_lighting.c:255
+msgid "Failed to apply lighting."
+msgstr ""
+
+#: gui/page_lighting.c:227
+msgid ""
+"Software colour cycle started -- rotates the active DPI stage's colour live."
+msgstr ""
+
+#: gui/page_lighting.c:230
+msgid ""
+"Software breathing started -- fades the current DPI stage colour in and out."
+msgstr ""
+
+#: gui/page_lighting.c:253
+msgid "Lighting applied."
+msgstr ""
+
+#: gui/page_lighting.c:307
+msgid ""
+"\"Off\", rainbow cycle and constant colour are real firmware modes, "
+"confirmed against real hardware. The two \"Software\" effects aren't -- "
+"they're this app repeatedly re-sending real colour/brightness commands on a "
+"timer, so they stop if the app closes."
+msgstr ""
+
+#: gui/page_lighting.c:310
+msgid "Effect"
+msgstr ""
+
+#: gui/page_lighting.c:311
+msgid "Off"
+msgstr ""
+
+#: gui/page_lighting.c:311
+msgid "Rainbow cycle"
+msgstr ""
+
+#: gui/page_lighting.c:311
+msgid "Constant colour"
+msgstr ""
+
+#: gui/page_lighting.c:312
+msgid "Software colour cycle (real-time)"
+msgstr ""
+
+#: gui/page_lighting.c:313
+msgid "Software breathing (DPI stage colour)"
+msgstr ""
+
+#: gui/page_lighting.c:323
+msgid "Brightness"
+msgstr ""
+
+#: gui/page_lighting.c:324
+msgid "0 to 4 (25% steps)"
+msgstr ""
+
+#: gui/page_lighting.c:331
+msgid "Speed"
+msgstr ""
+
+#: gui/page_lighting.c:340
+msgid "Apply lighting"
+msgstr ""
+
+#: gui/page_buttons.c:30
+msgid "Don't change"
+msgstr ""
+
+#: gui/page_buttons.c:34
+msgid "Default (built-in click)"
+msgstr ""
+
+#: gui/page_buttons.c:38
+msgid "Rapid-fire (auto-click)"
+msgstr ""
+
+#: gui/page_buttons.c:43
+msgid "Volume up"
+msgstr ""
+
+#: gui/page_buttons.c:44
+msgid "Volume down"
+msgstr ""
+
+#: gui/page_buttons.c:45
+msgid "Mute"
+msgstr ""
+
+#: gui/page_buttons.c:46
+msgid "Play / Pause"
+msgstr ""
+
+#: gui/page_buttons.c:47
+msgid "Next track"
+msgstr ""
+
+#: gui/page_buttons.c:48
+msgid "Previous track"
+msgstr ""
+
+#: gui/page_buttons.c:49
+msgid "Stop"
+msgstr ""
+
+#: gui/page_buttons.c:50
+msgid "Browser home"
+msgstr ""
+
+#: gui/page_buttons.c:51
+msgid "Browser back"
+msgstr ""
+
+#: gui/page_buttons.c:52
+msgid "Browser forward"
+msgstr ""
+
+#: gui/page_buttons.c:53
+msgid "Refresh page"
+msgstr ""
+
+#: gui/page_buttons.c:54
+msgid "Bookmarks"
+msgstr ""
+
+#: gui/page_buttons.c:63 gui/page_buttons.c:68 gui/page_buttons.c:72
+#: gui/page_macro.c:50 gui/page_macro.c:55 gui/page_macro.c:59
+#, c-format
+msgid "Key %c"
+msgstr ""
+
+#: gui/page_buttons.c:91
 msgid "Button mapping reset to default."
 msgstr ""
 
-#: gui/main.c:687
+#: gui/page_buttons.c:94
 msgid "Failed to reset buttons."
 msgstr ""
 
-#: gui/main.c:696
+#: gui/page_buttons.c:103
 msgid "Reset all buttons?"
 msgstr ""
 
-#: gui/main.c:697
+#: gui/page_buttons.c:104
 msgid "This clears every button remap and restores the factory defaults."
 msgstr ""
 
-#: gui/main.c:698
+#: gui/page_buttons.c:105
 msgid "Cancel"
 msgstr ""
 
-#: gui/main.c:699
+#: gui/page_buttons.c:106
 msgid "Reset"
 msgstr ""
 
-#: gui/main.c:715 gui/main.c:1742 gui/main.c:1765
+#: gui/page_buttons.c:122 gui/page_macro.c:207 gui/page_macro.c:230
 msgid "Could not read the current button table."
 msgstr ""
 
-#: gui/main.c:745
+#: gui/page_buttons.c:152
 msgid "Nothing selected to change."
 msgstr ""
 
-#: gui/main.c:748
+#: gui/page_buttons.c:155
 msgid "Buttons remapped."
 msgstr ""
 
-#: gui/main.c:751
+#: gui/page_buttons.c:158
 msgid "Failed to apply the remap."
 msgstr ""
 
-#: gui/main.c:801
+#: gui/page_buttons.c:207
 #, c-format
 msgid "Currently: %s"
 msgstr ""
 
-#: gui/main.c:805
+#: gui/page_buttons.c:211
 #, c-format
 msgid "Currently: plays a macro"
 msgstr ""
 
-#: gui/main.c:808
+#: gui/page_buttons.c:214
 #, c-format
-msgid "Currently: unrecognized code (0x%02x)"
+msgid "Currently: custom code (0x%02x, not in this list)"
 msgstr ""
 
-#: gui/main.c:817
+#: gui/page_buttons.c:223 gui/page_macro.c:37
+msgid "Left click"
+msgstr ""
+
+#: gui/page_buttons.c:223 gui/page_macro.c:38
+msgid "Right click"
+msgstr ""
+
+#: gui/page_buttons.c:223 gui/page_macro.c:39
+msgid "Middle click"
+msgstr ""
+
+#: gui/page_buttons.c:223
 msgid "Back"
 msgstr ""
 
-#: gui/main.c:817
+#: gui/page_buttons.c:223
 msgid "Forward"
 msgstr ""
 
-#: gui/main.c:1053
+#: gui/page_buttons.c:459
 msgid "Button mapping"
 msgstr ""
 
-#: gui/main.c:1055
+#: gui/page_buttons.c:461
 msgid ""
 "Pick a new function for each button, or click a number on the mouse to jump "
 "there."
 msgstr ""
 
-#: gui/main.c:1064 gui/main.c:1796
+#: gui/page_buttons.c:470 gui/page_macro.c:261
 #, c-format
 msgid "Button %d"
 msgstr ""
 
-#: gui/main.c:1070
+#: gui/page_buttons.c:476
 msgid "Fixed by the manufacturer"
 msgstr ""
 
-#: gui/main.c:1090
+#: gui/page_buttons.c:496
 msgid "Rapid-fire interval"
 msgstr ""
 
-#: gui/main.c:1098
+#: gui/page_buttons.c:504
 msgid "Rapid-fire repeats"
 msgstr ""
 
-#: gui/main.c:1121 gui/main.c:1588
-msgid "Apply"
+#: gui/page_buttons.c:527
+msgid "Apply remap"
 msgstr ""
 
-#: gui/main.c:1126
+#: gui/page_buttons.c:532
 msgid "Reset all"
 msgstr ""
 
-#: gui/main.c:1163
-#, c-format
-msgid "DPI value (stage %d)"
+#: gui/page_macro.c:32
+msgid "(none)"
 msgstr ""
 
-#: gui/main.c:1243
-msgid "DPI applied."
+#: gui/page_macro.c:40
+msgid "Button 4"
 msgstr ""
 
-#: gui/main.c:1243
-msgid "Failed to apply DPI."
+#: gui/page_macro.c:41
+msgid "Button 5"
 msgstr ""
 
-#: gui/main.c:1255
-msgid "Pick a report rate first."
-msgstr ""
-
-#: gui/main.c:1260
-msgid "Report rate applied."
-msgstr ""
-
-#: gui/main.c:1262
-msgid "Failed to apply report rate."
-msgstr ""
-
-#: gui/main.c:1280
-msgid "Could not read the current sensor settings."
-msgstr ""
-
-#: gui/main.c:1296
-msgid "Sensor and power settings applied."
-msgstr ""
-
-#: gui/main.c:1298
-msgid "Failed to apply sensor settings."
-msgstr ""
-
-#: gui/main.c:1307
-msgid "DPI sensitivity"
-msgstr ""
-
-#: gui/main.c:1339
-msgid "Apply DPI"
-msgstr ""
-
-#: gui/main.c:1370
-msgid "Apply report rate"
-msgstr ""
-
-#: gui/main.c:1384
-msgid "Lift-off distance"
-msgstr ""
-
-#: gui/main.c:1385
-msgid "May also control \"wake mouse on motion\" -- see Home"
-msgstr ""
-
-#: gui/main.c:1388
-msgid "1 mm"
-msgstr ""
-
-#: gui/main.c:1389
-msgid "2 mm"
-msgstr ""
-
-#: gui/main.c:1400
-msgid "Auto-sleep timer"
-msgstr ""
-
-#: gui/main.c:1410
-msgid "Turn light off when idle"
-msgstr ""
-
-#: gui/main.c:1414
-msgid "Apply sensor and power"
-msgstr ""
-
-#: gui/main.c:1499
-msgid "Lighting applied."
-msgstr ""
-
-#: gui/main.c:1501
-msgid "Failed to apply lighting."
-msgstr ""
-
-#: gui/main.c:1557
-msgid ""
-"\"Off\", rainbow cycle and constant colour apply correctly, and reading back "
-"the current effect and its brightness/speed now works too -- all three "
-"confirmed against real hardware."
-msgstr ""
-
-#: gui/main.c:1560
-msgid "Effect"
-msgstr ""
-
-#: gui/main.c:1561
-msgid "Off"
-msgstr ""
-
-#: gui/main.c:1561
-msgid "Rainbow cycle"
-msgstr ""
-
-#: gui/main.c:1561
-msgid "Constant colour"
-msgstr ""
-
-#: gui/main.c:1571
-msgid "Brightness"
-msgstr ""
-
-#: gui/main.c:1572
-msgid "0 to 4 (25% steps)"
-msgstr ""
-
-#: gui/main.c:1579
-msgid "Speed"
-msgstr ""
-
-#: gui/main.c:1630
+#: gui/page_macro.c:95
 msgid "plays a macro"
 msgstr ""
 
-#: gui/main.c:1630 gui/main.c:1810
+#: gui/page_macro.c:95 gui/page_macro.c:275
 msgid "default"
 msgstr ""
 
-#: gui/main.c:1647
+#: gui/page_macro.c:112
 #, c-format
 msgid "Action %u"
 msgstr ""
 
-#: gui/main.c:1684
+#: gui/page_macro.c:149
 msgid "Remove this action"
 msgstr ""
 
-#: gui/main.c:1728
+#: gui/page_macro.c:193
 msgid "Pick at least one action."
 msgstr ""
 
-#: gui/main.c:1732
+#: gui/page_macro.c:197
 msgid "Macro is too long to encode."
 msgstr ""
 
-#: gui/main.c:1735
+#: gui/page_macro.c:200
 msgid "Failed to write macro content."
 msgstr ""
 
-#: gui/main.c:1750
+#: gui/page_macro.c:215
 msgid "Macro saved to button."
 msgstr ""
 
-#: gui/main.c:1753
+#: gui/page_macro.c:218
 msgid "Failed to assign the macro to the button."
 msgstr ""
 
-#: gui/main.c:1773
+#: gui/page_macro.c:238
 msgid "Button reset to default."
 msgstr ""
 
-#: gui/main.c:1776
+#: gui/page_macro.c:241
 msgid "Failed to reset the button."
 msgstr ""
 
-#: gui/main.c:1785
+#: gui/page_macro.c:250
 msgid "Button"
 msgstr ""
 
-#: gui/main.c:1786
+#: gui/page_macro.c:251
 msgid "Choose which button plays the macro below."
 msgstr ""
 
-#: gui/main.c:1825 gui/main.c:2063
-msgid "Macro"
-msgstr ""
-
-#: gui/main.c:1827
+#: gui/page_macro.c:292
 msgid ""
 "Actions are played in order, each as press-then-release, with the same delay "
 "between every step."
 msgstr ""
 
-#: gui/main.c:1832
+#: gui/page_macro.c:297
 msgid "Add action"
 msgstr ""
 
-#: gui/main.c:1839
+#: gui/page_macro.c:304
 msgid ""
-"More than 3 actions needs a multi-packet write that isn't independently\n"
-"confirmed the way the rest of this app's protocol is -- test the button\n"
-"afterward to make sure it plays back correctly."
+"More than 3 actions needs a multi-packet write (up to 50 actions) --\n"
+"reconstructed from the official driver's own code rather than a wire\n"
+"capture, so test the button afterward to make sure it plays back\n"
+"correctly."
 msgstr ""
 
-#: gui/main.c:1856
+#: gui/page_macro.c:322
 msgid "Delay between steps"
 msgstr ""
 
-#: gui/main.c:1857
+#: gui/page_macro.c:323
 msgid "Milliseconds"
 msgstr ""
 
-#: gui/main.c:1864
+#: gui/page_macro.c:330
 msgid "Save to button"
 msgstr ""
 
-#: gui/main.c:1869
+#: gui/page_macro.c:335
 msgid "Reset button to default"
-msgstr ""
-
-#: gui/main.c:1929 gui/main.c:2042 gui/main.c:2070 gui/main.c:2082
-#: gui/main.c:2107
-msgid "Ajazzy"
-msgstr ""
-
-#: gui/main.c:1932
-msgid "AJAZZ mouse configurator"
-msgstr ""
-
-#: gui/main.c:2059
-msgid "Home"
-msgstr ""
-
-#: gui/main.c:2060
-msgid "Buttons"
-msgstr ""
-
-#: gui/main.c:2061
-msgid "Mouse settings"
-msgstr ""
-
-#: gui/main.c:2062
-msgid "Lighting"
 msgstr ""
 
 #: gui/tray.c:105

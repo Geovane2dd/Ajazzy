@@ -44,6 +44,28 @@ void ajazz_build_set_dpi_table(ajazz_report_t *r, const uint16_t dpi[AJAZZ_DPI_S
     ajazz_finalize(r);
 }
 
+void ajazz_build_set_dpi_colors(ajazz_report_t *r, const uint8_t colors[AJAZZ_DPI_STAGES][3])
+{
+    ajazz_init(r, AJAZZ_FAM_DPI_COLOR, 0x01, AJAZZ_DPI_STAGES * 3);
+
+    for (int i = 0; i < AJAZZ_DPI_STAGES; i++) {
+        r->payload[i * 3 + 0] = colors[i][0]; /* R */
+        r->payload[i * 3 + 1] = colors[i][1]; /* G */
+        r->payload[i * 3 + 2] = colors[i][2]; /* B */
+    }
+
+    ajazz_finalize(r);
+}
+
+void ajazz_parse_dpi_color_table(const ajazz_report_t *r, uint8_t colors[AJAZZ_DPI_STAGES][3])
+{
+    for (int i = 0; i < AJAZZ_DPI_STAGES; i++) {
+        colors[i][0] = r->payload[i * 3 + 0];
+        colors[i][1] = r->payload[i * 3 + 1];
+        colors[i][2] = r->payload[i * 3 + 2];
+    }
+}
+
 void ajazz_build_set_report_rate(ajazz_report_t *r, uint8_t rate_index)
 {
     ajazz_init(r, AJAZZ_FAM_REPORT_RATE, 0x01, 0x01);
@@ -195,8 +217,8 @@ void ajazz_build_macro_content(ajazz_report_t *r, const ajazz_macro_step_t *step
     int len = 1;
     for (int i = 0; i < n_steps && i < AJAZZ_MACRO_MAX_STEPS; i++) {
         r->payload[len + 0] = steps[i].kind;
-        r->payload[len + 1] = steps[i].delay_ms;
-        r->payload[len + 2] = 0x00;
+        r->payload[len + 1] = (uint8_t)(steps[i].delay_ms & 0xFF);
+        r->payload[len + 2] = (uint8_t)(steps[i].delay_ms >> 8);
         r->payload[len + 3] = steps[i].value;
         len += 4;
     }
@@ -221,17 +243,20 @@ int ajazz_build_macro_content_chunked(ajazz_report_t *out, int max_out, const aj
     stream[len++] = 0x03;
     for (int i = 0; i < n_steps; i++) {
         stream[len++] = steps[i].kind;
-        stream[len++] = steps[i].delay_ms;
-        stream[len++] = 0x00;
+        stream[len++] = (uint8_t)(steps[i].delay_ms & 0xFF);
+        stream[len++] = (uint8_t)(steps[i].delay_ms >> 8);
         stream[len++] = steps[i].value;
     }
+
+    /* total_chunks must be known up front -- it goes in every chunk's
+     * mode byte, not just the last one. */
+    int total_chunks = (len + AJAZZ_PAYLOAD_LEN - 1) / AJAZZ_PAYLOAD_LEN;
+    if (total_chunks > AJAZZ_MACRO_MAX_CHUNKS || total_chunks > max_out)
+        return -1;
 
     int n_chunks = 0;
     int off = 0;
     while (off < len) {
-        if (n_chunks >= max_out)
-            return -1;
-
         int chunk_len = len - off;
         if (chunk_len > AJAZZ_PAYLOAD_LEN)
             chunk_len = AJAZZ_PAYLOAD_LEN;
@@ -240,7 +265,7 @@ int ajazz_build_macro_content_chunked(ajazz_report_t *out, int max_out, const aj
         memset(r, 0, sizeof(*r));
         r->family = AJAZZ_FAM_MACRO;
         r->reserved0 = 0x00;
-        r->mode = (uint8_t)((n_chunks << 4) | 0x02);
+        r->mode = (uint8_t)((n_chunks << 4) | total_chunks);
         r->opcode = (uint8_t)chunk_len;
         memcpy(r->payload, stream + off, (size_t)chunk_len);
         ajazz_finalize(r);
@@ -309,9 +334,8 @@ int ajazz_parse_led_mode(const ajazz_report_t *r, ajazz_led_state_t *out)
 
 const char *ajazz_battery_label(uint8_t raw)
 {
-    if (raw >= 25) return "Cheia (4/4 barras, estimado)";
-    if (raw >= 17) return "Boa (3/4 barras, estimado)";
-    if (raw >= 8)  return "Media (2/4 barras, estimado)";
-    if (raw >= 1)  return "Baixa (1/4 barras, estimado)";
-    return "Vazia/critica (estimado)";
+    if (raw >= 75) return "Cheia (4/4 barras)";
+    if (raw >= 50) return "Boa (3/4 barras)";
+    if (raw >= 25) return "Media (2/4 barras)";
+    return "Baixa (1/4 barras)";
 }
