@@ -76,11 +76,26 @@ Confirmed with a capture of switching active stage from 1 to 5: five family `0x0
 
 Round-tripped on real hardware: write a value, read it back, matches — across DPI, report rate, and lift-off. **Lift-off distance specifically was round-tripped with this project's own driver, not observed being set from the official Windows driver's UI** -- decompiling that driver shows `DeviceMainDlg::SetMouseSensorLiftData` (the function that writes `liftoff_height` on family `0x07`/opcode `0x04`) exists, but no `OnLift...`/`GetLift...` UI message handler does, for the AJ179 V2 MAX. The mouse genuinely accepts and stores the byte -- it's just not a control the official app exposes for this model, so treat it as an extra capability this project surfaces rather than a like-for-like port of an official feature.
 
+## Factory reset (family `0x0f`)
+
+The official driver's "Restore Factory Settings" button, `DeviceMainDlg::SetMouseRestoreFactoryData`, builds (for `this->m_device_type < 0xc9`, the AJ179 V2 MAX's branch) a single 32-byte report by hand:
+
+```
+byte 0   0x0f     family
+byte 1   0x00     always zero
+byte 2   0x01     mode = SET
+byte 3   0x01     opcode = 1 (payload byte count)
+byte 4   0xff     payload[0]
+byte 5..30        always zero
+```
+
+This command has never turned up in a capture (the same caveat as the DPI colour SET above); it's reconstructed purely from decompiling the function. The individual per-section "reset to default" buttons (`SetMouseResetDPI`/`SetMouseResetLight`/`SetMouseResetReport`) are local-only -- they just reload values from the driver's own SQLite config and reapply them through the per-section SET commands already documented above (family `0x03` for DPI, etc.). The single-command factory reset is the one genuinely new wire command among them.
+
 ## Setting the per-DPI-stage indicator colour (family `0x04`)
 
-Unlike everything else in this document, this one was **not** found in a USB capture — no capture ever caught the official driver actually writing a new colour. It comes from decompiling `AJAZZ Driver (X).exe` with Ghidra (the installer ships full PDB debug symbols for both the main EXE and `MUI.dll`, so this isn't blind disassembly — function and variable names came straight from Microsoft's own symbol format). Confirmed working against a real AJ179 V2 MAX: `dpicolor set` changed the colour, `dpicolor list` read the new value back, and the mouse's actual indicator LED changed too.
+Unlike everything else in this document, this side of the command has never turned up in a USB capture. It comes from decompiling `AJAZZ Driver (X).exe` with Ghidra: the installer ships full PDB debug symbols for both the main EXE and `MUI.dll`, so function and variable names came straight from Microsoft's own symbol format rather than blind disassembly. It's confirmed against real hardware, though: `dpicolor set` changes the colour, `dpicolor list` reads the new value back, and the mouse's actual indicator LED changes too.
 
-**Unreliable over the 2.4G dongle interface specifically.** With the mouse's charge cable plugged in *and* its 2.4G dongle still paired, both a `USB`-mode and a `2.4G`-mode hidraw node exist at once. Tested live: sending this SET over the dongle node gets acked (`ajazz_send_and_wait` returns success) but never actually takes -- reading query `0x14` back afterward, even a full second later, comes back all-zero every time. The exact same SET/GET round-trips correctly, immediately, over the `USB` node. This is why `ajazz_open()` prefers a `"USB"` candidate over a `"2.4G"` one when both are present (see `protocol/transport.c`) -- it was briefly the other way around (preferring `2.4G`, to avoid the charge-current-skewed battery reading over USB -- see the battery section above), which silently broke DPI colour and possibly other config writes whenever the mouse was charging with the dongle still in. General command reliability wins; the battery-reading tradeoff is limited to running a bit high while actively charging, which is already surfaced via `dev.charging`/the "(charging)" label rather than being silently wrong.
+**Unreliable over the 2.4G dongle interface specifically.** With the mouse's charge cable plugged in and its 2.4G dongle still paired, both a `USB`-mode and a `2.4G`-mode hidraw node exist at once. A SET sent over the dongle node gets acked (`ajazz_send_and_wait` returns success) but doesn't stick -- reading query `0x14` back afterward, even a second later, comes back all-zero every time. The same SET/GET round-trips correctly and immediately over the `USB` node. That's why `ajazz_open()` prefers a `"USB"` candidate over a `"2.4G"` one when both are present (see `protocol/transport.c`). The tradeoff is a battery reading that runs a bit high while charging over USB, but that's already surfaced via `dev.charging`/the "(charging)" label rather than silently wrong -- general command reliability matters more.
 
 `DeviceMainDlg::SetMouseDPIColorData` is the function behind the DPI colour picker UI. For `this->m_device_type < 0xc9` (which should cover the AJ179 V2 MAX, since every other command it uses matches this driver's `DriverComm::SetDeviceData` interrupt-report path rather than the `SetFeatureReport` path the `else` branch takes for other device families), it builds a 32-byte report by hand:
 
@@ -118,7 +133,7 @@ Only the first five slots (button 1-5) ever change; slots 6+ stay at a constant 
 
 Independent commands. Report rate (family `0x02`/opcode `0x01`, `payload[0]` = interval in ms) — confirmed with a capture of setting 125→250→500→1000 Hz in order, nothing else touched. DPI stage (family `0x03`/opcode `0x25`, full table rewrite) — confirmed with a capture of switching stage low-to-high, report rate untouched, every frame family `0x03`.
 
-Manually constructing a family `0x02` write with a small `payload[0]` value does move the device's active DPI stage as a side effect — confirmed live: setting report rate to 500 Hz (`payload[0]=2`) changed query `0x12`'s reply from 1 to 2. `ajazz_build_set_dpi_table()` avoids this entirely by using family `0x03` for DPI stage, matching what the real driver does.
+Manually constructing a family `0x02` write with a small `payload[0]` value also moves the device's active DPI stage as a side effect: setting report rate to 500 Hz (`payload[0]=2`) changes query `0x12`'s reply from 1 to 2. `ajazz_build_set_dpi_table()` avoids this entirely by using family `0x03` for DPI stage, matching what the real driver does.
 
 ## Macros
 
@@ -168,9 +183,9 @@ A second write to the key table marks a slot's marker as `0x90` with a constant 
 
 Query `0x20` is unreliable: captures of the official driver's own traffic show it coming back either stuck on a stale value or with opcode `0x00` (zero meaningful payload bytes, i.e. no data). Don't use it.
 
-The real, live battery level lives at `AJAZZ_BATTERY_PAYLOAD_OFFSET` (`payload[9]`, wire byte 13) of the `0x10` device info reply, which this driver already queries anyway. This was found by watching that byte move (`0x1f` → `0x1e` → `0x25` → ...) in lockstep with the mouse's own unsolicited status push -- a `c0 <flag> <raw> 00 ...` report the mouse sends unprompted over the interrupt-in endpoint on dongle reconnect and on charge-cable plug/unplug. `<raw>` at byte 2 of that push and `payload[9]` of the next `0x10` reply always matched exactly across several captures.
+The real, live battery level lives at `AJAZZ_BATTERY_PAYLOAD_OFFSET` (`payload[9]`, wire byte 13) of the `0x10` device info reply, which this driver already queries anyway. That byte tracks the mouse's own unsolicited status push in lockstep -- a `c0 <flag> <raw> 00 ...` report the mouse sends unprompted over the interrupt-in endpoint on dongle reconnect and on charge-cable plug/unplug. `<raw>` at byte 2 of that push and `payload[9]` of the following `0x10` reply always match.
 
-`<raw>` is a plain **0-100 percentage**, not some device-specific coded scale -- confirmed by decompiling the official Windows driver itself (with Ghidra, using the debug PDBs shipped next to `AJAZZ Driver (X).exe` and `MUI.dll`). The main EXE's `DeviceMainDlg::GetMouseStatusData` forwards the raw byte from the `0xc0` push straight into `DUI::BatteryCtrl::SetBatteryInfo(raw, charge_flag)` with zero conversion. The actual bar count is decided later, in `DUI::BatteryCtrl::DrawControl` (`MUI.dll`, offset `0x1f9b0`), which compares `this->m_battery_value` against `0x19`/`0x32`/`0x4b` (25/50/75) in even quarters:
+`<raw>` is a plain **0-100 percentage**, not some device-specific coded scale. That's confirmed by decompiling the official Windows driver itself with Ghidra, using the debug PDBs shipped next to `AJAZZ Driver (X).exe` and `MUI.dll`. The main EXE's `DeviceMainDlg::GetMouseStatusData` forwards the raw byte from the `0xc0` push straight into `DUI::BatteryCtrl::SetBatteryInfo(raw, charge_flag)` with zero conversion. The actual bar count is decided later, in `DUI::BatteryCtrl::DrawControl` (`MUI.dll`, offset `0x1f9b0`), which compares `this->m_battery_value` against `0x19`/`0x32`/`0x4b` (25/50/75) in even quarters:
 
 ```
 raw >= 75           -> 4/4 bars
@@ -183,9 +198,9 @@ raw < 25              -> 1/4 bar (drawn in red -- there's no distinct "empty" ti
 
 ## Report rate and lighting readback
 
-**`0x12`** is report rate. Confirmed by setting 125, 500, then 1000 Hz (with a ~1 second pause before each read) and getting back `payload[0]` = `0x08`, `0x02`, `0x01` respectively — the same interval-in-ms encoding the SET command uses. Reading immediately after the SET's ack can catch the pre-update value; a short delay matters. No dedicated "get active DPI stage" query exists — read that from `AJAZZ_QUERY_DPI_TABLE`'s payload (`ajazz_dpi_table_active_stage()`).
+**`0x12`** is report rate. Setting 125, 500, then 1000 Hz (with a ~1 second pause before each read) gets back `payload[0]` = `0x08`, `0x02`, `0x01` respectively, the same interval-in-ms encoding the SET command uses. Reading immediately after the SET's ack can catch the pre-update value, so a short delay matters. No dedicated "get active DPI stage" query exists -- read that from `AJAZZ_QUERY_DPI_TABLE`'s payload (`ajazz_dpi_table_active_stage()`).
 
-**`0x15`** is the RGB lighting effect state. Confirmed by cycling off → rainbow → constant → off and reading after each change: the reply's opcode byte is `0x01` for off, `0x05` for constant, `0x18` for rainbow, matching `AJAZZ_LED_OFF`/`CONSTANT`/`RAINBOW`. Constant colour's brightness was set and read back at all 5 levels and matched every time; rainbow's brightness and speed the same way. Rainbow's payload mirrors the SET command's shape. Off's reply opcode (`0x01`) doesn't match the "off" SET command's own opcode (`0x02`) the way constant and rainbow's do — no explanation, that's just what the device sends.
+**`0x15`** is the RGB lighting effect state. Cycling off → rainbow → constant → off and reading after each change gives a stable opcode per effect: `0x01` for off, `0x05` for constant, `0x18` for rainbow, matching `AJAZZ_LED_OFF`/`CONSTANT`/`RAINBOW`. Constant colour's brightness reads back correctly at all 5 levels, and rainbow's brightness and speed do too. Rainbow's payload mirrors the SET command's shape. Off's reply opcode (`0x01`) doesn't match the "off" SET command's own opcode (`0x02`) the way constant and rainbow's do -- no explanation for that, it's simply what the device sends.
 
 **Timing:** this query can report the previous effect for a couple of seconds after switching to a different effect *type* (off→rainbow, rainbow→constant). A 1 second pause is enough for a parameter change within the same effect (e.g. constant colour's brightness), but an effect-type switch can need up to ~3 seconds. `0x12` shows the same pattern, so this may be a general "give the firmware a moment after any SET" rule rather than something lighting-specific. Neither `cmd_rgb_get()`/`refresh_lighting()` nor `cmd_rate_get()`/`refresh_config()` retry or wait for this — reading right after applying a change in the GUI can show stale data briefly.
 

@@ -4,25 +4,20 @@
  * -- see docs/reverse-engineering.md's "What's still unknown" section
  * for why there's no separate "breathing" effect.
  *
- * The two "software" effects below are NOT firmware effects -- they're
- * this app repeatedly re-sending real SET commands on a timer to
- * animate something the firmware only supports as a static value:
- *
- * - "Software colour cycle" rewrites the ACTIVE DPI stage's indicator
- *   colour (family 0x04, ajazz_build_set_dpi_colors()) with a
- *   continuously rotating hue, while "constant colour" mode is on --
- *   that mode lights the same LED the active DPI stage's colour drives
- *   (the constant-colour SET command carries no RGB of its own, only
- *   brightness -- see ajazz_build_set_rgb_constant() in
- *   protocol/hid.h), so changing the DPI colour changes what's lit.
- *   This is genuine real-time colour changes on the mouse, not a
- *   brightness fade -- what was actually asked for.
- * - "Software breathing" fades that same constant-colour brightness up
- *   and down instead of changing hue, for a slower ambient pulse at
- *   whatever colour is already set.
- *
- * Both are software animations layered on top of real firmware modes,
- * not new wire commands, and both stop the moment the app closes.
+ * "Software colour cycle" below is NOT a firmware effect -- it's this
+ * app repeatedly re-sending real SET commands on a timer to animate
+ * something the firmware only supports as a static value. It rewrites
+ * EVERY DPI stage's indicator colour (family 0x04,
+ * ajazz_build_set_dpi_colors()) to the same continuously-rotating hue,
+ * while "constant colour" mode is on -- that mode lights the same LED
+ * the DPI stage indicator colour drives (the constant-colour SET
+ * command carries no RGB of its own, only brightness -- see
+ * ajazz_build_set_rgb_constant() in protocol/hid.h). Writing the same
+ * colour to all 6 stages (not just whichever one the UI last had
+ * selected) means the light stays lit and cycling regardless of which
+ * stage the mouse actually has active. This is a software animation
+ * layered on top of a real firmware mode, not a new wire command, and
+ * it stops the moment the app closes.
  */
 
 #include <adwaita.h>
@@ -34,50 +29,19 @@
 #include "../devices/device.h"
 
 
-enum { RGB_OFF, RGB_RAINBOW, RGB_CONSTANT, RGB_SOFT_COLORCYCLE, RGB_SOFT_BREATHE };
-
-/* There's no arbitrary colour picker -- rainbow uses a fixed palette and
- * off/constant don't carry a colour choice at all -- so this shows the
- * effect itself: the fixed rainbow gradient, the brand accent for
- * constant (scaled by brightness), a dark swatch for off. */
-static void update_rgb_preview(App *app)
-{
-    guint sel = adw_combo_row_get_selected(app->rgb_effect);
-    const char *want = (sel == RGB_OFF) ? "ajazz-rgb-off"
-                      : (sel == RGB_CONSTANT || sel == RGB_SOFT_BREATHE) ? "ajazz-rgb-constant"
-                      : (sel == RGB_SOFT_COLORCYCLE) ? "ajazz-rgb-rainbow"
-                      : "ajazz-rgb-rainbow";
-    static const char *all_classes[] = {"ajazz-rgb-off", "ajazz-rgb-constant", "ajazz-rgb-rainbow"};
-    for (size_t i = 0; i < G_N_ELEMENTS(all_classes); i++) {
-        if (strcmp(all_classes[i], want) == 0)
-            gtk_widget_add_css_class(app->rgb_preview, all_classes[i]);
-        else
-            gtk_widget_remove_css_class(app->rgb_preview, all_classes[i]);
-    }
-
-    double brightness = (sel == RGB_OFF) ? 0 : adw_spin_row_get_value(app->rgb_brightness);
-    gtk_widget_set_opacity(app->rgb_preview, (sel == RGB_OFF) ? 1.0 : 0.35 + 0.65 * (brightness / 4.0));
-}
+enum { RGB_OFF, RGB_RAINBOW, RGB_CONSTANT, RGB_SOFT_COLORCYCLE };
 
 static void update_rgb_row_visibility(App *app)
 {
     guint sel = adw_combo_row_get_selected(app->rgb_effect);
     gtk_widget_set_visible(GTK_WIDGET(app->rgb_brightness), sel != RGB_OFF);
-    gtk_widget_set_visible(GTK_WIDGET(app->rgb_speed_row),
-        sel == RGB_RAINBOW || sel == RGB_SOFT_BREATHE || sel == RGB_SOFT_COLORCYCLE);
-    update_rgb_preview(app);
+    gtk_widget_set_visible(GTK_WIDGET(app->rgb_speed_row), sel == RGB_RAINBOW || sel == RGB_SOFT_COLORCYCLE);
 }
 
 static void on_rgb_effect_changed(GObject *dd, GParamSpec *pspec, gpointer user_data)
 {
     (void)dd; (void)pspec;
     update_rgb_row_visibility((App *)user_data);
-}
-
-static void on_rgb_brightness_changed(GtkAdjustment *adj, gpointer user_data)
-{
-    (void)adj;
-    update_rgb_preview((App *)user_data);
 }
 
 /* Stops whichever software effect loop is running, if any. Safe to
@@ -109,12 +73,13 @@ static void hsv_to_rgb(double h, uint8_t *r, uint8_t *g, uint8_t *b)
     *b = (uint8_t)(bp * 255.0 + 0.5);
 }
 
-/* One frame of the software colour-cycle effect: rewrites the active
- * DPI stage's indicator colour (see the file comment) to a hue that
- * rotates through the full spectrum over time, so the LED that
+/* One frame of the software colour-cycle effect: rewrites EVERY DPI
+ * stage's indicator colour (see the file comment) to the same hue,
+ * rotating through the full spectrum over time, so the LED that
  * "constant colour" mode lights actually changes colour live -- not
- * just brightness. Ticks every 150ms; the Speed row controls how fast
- * the hue rotates. */
+ * just brightness -- no matter which stage the mouse currently has
+ * active. Ticks every 150ms; the Speed row controls how fast the hue
+ * rotates. */
 static gboolean rgb_soft_colorcycle_tick(gpointer user_data)
 {
     App *app = user_data;
@@ -126,15 +91,25 @@ static gboolean rgb_soft_colorcycle_tick(gpointer user_data)
     double speed = adw_spin_row_get_value(app->rgb_speed);
     double step = 2.0 + speed * 3.0; /* degrees of hue per tick */
 
-    int stage = app->dpi_selected;
-    if (stage < 0 || stage >= AJAZZ_DPI_STAGES) stage = 0;
-    hsv_to_rgb(app->rgb_soft_phase,
-        &app->dpi_color_cache[stage][0], &app->dpi_color_cache[stage][1], &app->dpi_color_cache[stage][2]);
+    uint8_t r, g, b;
+    hsv_to_rgb(app->rgb_soft_phase, &r, &g, &b);
+    for (int i = 0; i < AJAZZ_DPI_STAGES; i++) {
+        app->dpi_color_cache[i][0] = r;
+        app->dpi_color_cache[i][1] = g;
+        app->dpi_color_cache[i][2] = b;
+    }
 
     ajazz_report_t req;
     ajazz_build_set_dpi_colors(&req, app->dpi_color_cache);
 
-    if (ajazz_send_mt(app, &req) == 0) {
+    /* trylock, not the blocking ajazz_send_mt(): this runs on the main
+     * thread every 150ms, and a page's background refresh can hold
+     * hid_lock for up to a second -- blocking here would freeze the
+     * whole window for that long every time a page fetch and a tick
+     * happen to overlap. A skipped tick just means the animation misses
+     * one frame; it keeps advancing next tick. */
+    int rc = ajazz_send_trylock_mt(app, &req);
+    if (rc == 0 || rc == 1) {
         app->rgb_soft_fail_count = 0;
     } else {
         app->rgb_soft_fail_count++;
@@ -153,52 +128,6 @@ static gboolean rgb_soft_colorcycle_tick(gpointer user_data)
     return G_SOURCE_CONTINUE;
 }
 
-/* One frame of the software breathing effect: re-sends "constant
- * colour" with a brightness that rises and falls in a sine wave, so the
- * LED fades in and out at whatever colour the active DPI stage's
- * indicator is already set to (see the file comment). Ticks every
- * 120ms; the Speed row (reused from rainbow, 0-4) controls how fast the
- * wave moves, and Brightness caps how bright the peak gets. Uses a
- * fire-and-forget send (no ack wait) so a slow/unplugged mouse can't
- * stall the GTK main loop -- stops itself after a few consecutive
- * failures instead. */
-static gboolean rgb_soft_breathe_tick(gpointer user_data)
-{
-    App *app = user_data;
-    if (!app->connected) {
-        app->rgb_soft_timer_id = 0;
-        return G_SOURCE_REMOVE;
-    }
-
-    double peak = adw_spin_row_get_value(app->rgb_brightness);
-    double speed = adw_spin_row_get_value(app->rgb_speed);
-    double step = 0.05 + speed * 0.05; /* radians per tick */
-
-    double wave = (sin(app->rgb_soft_phase) + 1.0) / 2.0; /* 0..1 */
-    uint8_t brightness = (uint8_t)(wave * peak + 0.5);
-
-    ajazz_report_t req;
-    ajazz_build_set_rgb_constant(&req, brightness);
-
-    if (ajazz_send_mt(app, &req) == 0) {
-        app->rgb_soft_fail_count = 0;
-    } else {
-        app->rgb_soft_fail_count++;
-        if (app->rgb_soft_fail_count >= 5) {
-            app->rgb_soft_timer_id = 0;
-            app->rgb_soft_fail_count = 0;
-            toast(app, _("Software breathing stopped (mouse not responding)."));
-            return G_SOURCE_REMOVE;
-        }
-    }
-
-    app->rgb_soft_phase += step;
-    if (app->rgb_soft_phase > 2 * G_PI)
-        app->rgb_soft_phase -= 2 * G_PI;
-
-    return G_SOURCE_CONTINUE;
-}
-
 static void on_rgb_apply(GtkButton *btn, gpointer user_data)
 {
     (void)btn;
@@ -208,7 +137,7 @@ static void on_rgb_apply(GtkButton *btn, gpointer user_data)
     guint effect = adw_combo_row_get_selected(app->rgb_effect);
     uint8_t brightness = (uint8_t)adw_spin_row_get_value(app->rgb_brightness);
 
-    if (effect == RGB_SOFT_COLORCYCLE || effect == RGB_SOFT_BREATHE) {
+    if (effect == RGB_SOFT_COLORCYCLE) {
         /* Turn the LED on at constant colour first (a confirmed,
          * synchronous SET), then hand off to the timer to animate it --
          * rather than starting the loop on a possibly-off LED and
@@ -222,13 +151,8 @@ static void on_rgb_apply(GtkButton *btn, gpointer user_data)
         stop_rgb_soft_effect(app);
         app->rgb_soft_phase = 0;
         app->rgb_soft_fail_count = 0;
-        if (effect == RGB_SOFT_COLORCYCLE) {
-            app->rgb_soft_timer_id = g_timeout_add(150, rgb_soft_colorcycle_tick, app);
-            toast(app, _("Software colour cycle started -- rotates the active DPI stage's colour live."));
-        } else {
-            app->rgb_soft_timer_id = g_timeout_add(120, rgb_soft_breathe_tick, app);
-            toast(app, _("Software breathing started -- fades the current DPI stage colour in and out."));
-        }
+        app->rgb_soft_timer_id = g_timeout_add(150, rgb_soft_colorcycle_tick, app);
+        toast(app, _("Software colour cycle started -- rotates the mouse's colour live."));
         return;
     }
 
@@ -334,27 +258,18 @@ GtkWidget *build_lighting_page(App *app)
 {
     GtkWidget *page = adw_preferences_page_new();
 
-    AdwPreferencesGroup *preview_group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
-    app->rgb_preview = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-    gtk_widget_add_css_class(app->rgb_preview, "ajazz-rgb-preview");
-    gtk_widget_set_margin_top(app->rgb_preview, 4);
-    gtk_widget_set_margin_bottom(app->rgb_preview, 4);
-    adw_preferences_group_add(preview_group, app->rgb_preview);
-    adw_preferences_page_add(ADW_PREFERENCES_PAGE(page), preview_group);
-
     AdwPreferencesGroup *group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
     adw_preferences_group_set_title(group, _("RGB lighting"));
     adw_preferences_group_set_description(group,
-        _("\"Off\", rainbow cycle and constant colour are real firmware modes, confirmed against real hardware. The two \"Software\" effects aren't -- they're this app repeatedly re-sending real colour/brightness commands on a timer, so they stop if the app closes."));
+        _("\"Off\", rainbow cycle and constant colour are real firmware modes, confirmed against real hardware. \"Software colour cycle\" isn't -- it's this app repeatedly re-sending real colour commands on a timer, so it stops if the app closes."));
 
     app->rgb_effect = ADW_COMBO_ROW(adw_combo_row_new());
     adw_preferences_row_set_title(ADW_PREFERENCES_ROW(app->rgb_effect), _("Effect"));
     const char *effect_names[] = {N_("Off"), N_("Rainbow cycle"), N_("Constant colour"),
-                                   N_("Software colour cycle (real-time)"),
-                                   N_("Software breathing (DPI stage colour)"), NULL};
-    const char *effect_names_tr[6];
-    for (int i = 0; i < 5; i++) effect_names_tr[i] = gettext(effect_names[i]);
-    effect_names_tr[5] = NULL;
+                                   N_("Software colour cycle (real-time)"), NULL};
+    const char *effect_names_tr[5];
+    for (int i = 0; i < 4; i++) effect_names_tr[i] = gettext(effect_names[i]);
+    effect_names_tr[4] = NULL;
     adw_combo_row_set_model(app->rgb_effect, G_LIST_MODEL(gtk_string_list_new(effect_names_tr)));
     adw_combo_row_set_selected(app->rgb_effect, RGB_RAINBOW);
     g_signal_connect(app->rgb_effect, "notify::selected", G_CALLBACK(on_rgb_effect_changed), app);
@@ -364,8 +279,6 @@ GtkWidget *build_lighting_page(App *app)
     adw_preferences_row_set_title(ADW_PREFERENCES_ROW(app->rgb_brightness), _("Brightness"));
     adw_action_row_set_subtitle(ADW_ACTION_ROW(app->rgb_brightness), _("0 to 4 (25% steps)"));
     adw_spin_row_set_value(app->rgb_brightness, 4);
-    g_signal_connect(adw_spin_row_get_adjustment(app->rgb_brightness), "value-changed",
-        G_CALLBACK(on_rgb_brightness_changed), app);
     adw_preferences_group_add(group, GTK_WIDGET(app->rgb_brightness));
 
     app->rgb_speed = ADW_SPIN_ROW(adw_spin_row_new_with_range(0, 4, 1));

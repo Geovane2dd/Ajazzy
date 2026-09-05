@@ -1,6 +1,16 @@
 #include <string.h>
 #include "hid.h"
 
+const uint16_t AJAZZ_DEFAULT_DPI[AJAZZ_DPI_STAGES] = {400, 800, 1200, 1600, 2400, 3200};
+const uint8_t AJAZZ_DEFAULT_DPI_COLOR[AJAZZ_DPI_STAGES][3] = {
+    {0xff, 0x00, 0x00}, /* red    */
+    {0x00, 0xff, 0x00}, /* green  */
+    {0x00, 0x00, 0xff}, /* blue   */
+    {0x00, 0xff, 0xff}, /* cyan   */
+    {0xff, 0xff, 0x00}, /* yellow */
+    {0x80, 0x00, 0x80}, /* purple */
+};
+
 void ajazz_finalize(ajazz_report_t *r)
 {
     uint32_t sum = 0;
@@ -143,6 +153,13 @@ void ajazz_sensor_set_liftoff(ajazz_report_t *r, uint8_t level)
 void ajazz_sensor_set_light_idle_off(ajazz_report_t *r, uint8_t enabled)
 {
     r->payload[2] = enabled;
+    ajazz_finalize(r);
+}
+
+void ajazz_build_factory_reset(ajazz_report_t *r)
+{
+    ajazz_init(r, AJAZZ_FAM_FACTORY_RESET, 0x01, 0x01);
+    r->payload[0] = 0xff;
     ajazz_finalize(r);
 }
 

@@ -109,15 +109,6 @@ static const char *CSS =
     "  background-color: alpha(#fff, 0.12); }"
     ".ajazz-batt-seg.lit { background-color: @accent_color; box-shadow: 0 0 8px alpha(@accent_color, 0.65); }"
 
-    /* lighting preview swatch */
-    ".ajazz-rgb-preview { border-radius: 16px; min-height: 72px;"
-    "  border: 1px solid alpha(#fff, 0.14); transition: all 200ms ease; }"
-    ".ajazz-rgb-preview.ajazz-rgb-off { background-color: alpha(#fff, 0.05); }"
-    ".ajazz-rgb-preview.ajazz-rgb-constant { background-color: @accent_color;"
-    "  box-shadow: inset 0 0 30px alpha(#000, 0.25); }"
-    ".ajazz-rgb-preview.ajazz-rgb-rainbow {"
-    "  background-image: linear-gradient(90deg, #ff0000, #ffae00, #2ecc40, #00d1d1, #3b6bff, #e838e8, #ff0000); }"
-
     /* tested/untested badges */
     ".ajazz-badge { border-radius: 999px; padding: 3px 11px; font-size: 11px; font-weight: 800; letter-spacing: 0.3px; }"
     ".ajazz-badge-green { background-color: alpha(#3fe07a, 0.16); color: #3fe07a; border: 1px solid alpha(#3fe07a, 0.45); }"
@@ -194,8 +185,30 @@ gboolean ensure_connected(App *app)
          * check, so we close the stale handle and fall through to
          * ajazz_open() to find the device again instead of getting
          * stuck reporting "connected" forever. */
-        if (access(app->dev.path, F_OK) == 0)
+        gboolean still_here = (access(app->dev.path, F_OK) == 0);
+
+        /* Separately: even if our current node is still there, a
+         * BETTER one may have appeared since we opened it -- plugging
+         * in the mouse's USB cable while an existing "2.4G" connection
+         * is open doesn't make the dongle's node disappear, so the
+         * access() check above alone would keep us talking to the
+         * dongle forever and never notice the cable (including for
+         * dev.charging, which would then also never flip to true).
+         * ajazz_best_path() is a cheap directory scan, safe to run on
+         * every call. */
+        char best_path[280];
+        int charging = 0;
+        gboolean better_available = FALSE;
+        if (still_here && ajazz_best_path(best_path, sizeof(best_path), &charging)) {
+            if (strcmp(best_path, app->dev.path) != 0)
+                better_available = TRUE;
+            else
+                app->dev.charging = charging; /* same interface, charging state may have changed */
+        }
+
+        if (still_here && !better_available)
             return TRUE;
+
         g_mutex_lock(&app->hid_lock);
         ajazz_close(&app->dev);
         g_mutex_unlock(&app->hid_lock);
@@ -454,7 +467,7 @@ static void on_activate(GtkApplication *gtk_app, gpointer user_data)
     app->tray = ajazz_tray_new("battery-missing-symbolic", _("Ajazzy"), &tray_cb);
 
     refresh_home(app);
-    g_timeout_add_seconds(5, periodic_refresh_cb, app);
+    g_timeout_add_seconds(2, periodic_refresh_cb, app);
 }
 
 int main(int argc, char **argv)

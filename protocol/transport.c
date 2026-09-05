@@ -51,27 +51,27 @@ typedef struct {
     const char *mode; /* "USB", "2.4G", or NULL if unlisted */
 } ajazz_candidate_t;
 
-int ajazz_open(ajazz_dev_t *dev)
+/* Scans /dev for every present config-interface hidraw node. When the
+ * mouse's charge cable is plugged in while its 2.4G dongle is also
+ * still present, BOTH show up as separate nodes at once -- collecting
+ * all of them (instead of stopping at the first match) is what lets
+ * ajazz_pick_best() below choose between them and what lets
+ * ajazz_scan_charging() detect "USB" presence independently of which
+ * one ends up used. Returns the candidate count. */
+static int ajazz_scan(ajazz_candidate_t *candidates, int max)
 {
     DIR *d = opendir("/dev");
     if (!d) {
         perror("opendir /dev");
-        return -1;
+        return 0;
     }
 
-    /* Collect every matching config interface first instead of taking
-     * the first one found. When the mouse's charge cable is plugged in
-     * while its 2.4G dongle is also still present, BOTH show up as
-     * separate hidraw nodes -- see the preference comment below for
-     * which one gets used and why. */
-    ajazz_candidate_t candidates[8];
-    int n_candidates = 0;
-
+    int n = 0;
     struct dirent *ent;
     while ((ent = readdir(d)) != NULL) {
         if (strncmp(ent->d_name, "hidraw", 6) != 0)
             continue;
-        if (n_candidates >= (int)(sizeof(candidates) / sizeof(candidates[0])))
+        if (n >= max)
             break;
 
         char path[280];
@@ -92,7 +92,7 @@ int ajazz_open(ajazz_dev_t *dev)
         const char *name = ajazz_lookup_name(vid, pid);
 
         if (name && is_config_interface(fd)) {
-            ajazz_candidate_t *c = &candidates[n_candidates++];
+            ajazz_candidate_t *c = &candidates[n++];
             snprintf(c->path, sizeof(c->path), "%s", path);
             c->vid = vid;
             c->pid = pid;
@@ -102,29 +102,71 @@ int ajazz_open(ajazz_dev_t *dev)
         close(fd);
     }
     closedir(d);
+    return n;
+}
+
+/* Prefer "USB" over "2.4G" when both are present. With the charge cable
+ * plugged in and the dongle still paired, DPI colour (family 0x04/query
+ * 0x14) SETs ack over the dongle but never stick -- GET reads back
+ * all-zero regardless. The exact same round-trip works fine over USB.
+ * That's worth more than a perfectly accurate battery reading over
+ * "2.4G": the battery is still readable over USB, just running slightly
+ * high while charging, and that's already surfaced via dev.charging /
+ * the "(charging)" label rather than left silently misleading. */
+static const ajazz_candidate_t *ajazz_pick_best(const ajazz_candidate_t *candidates, int n)
+{
+    const ajazz_candidate_t *best = &candidates[0];
+    for (int i = 1; i < n; i++) {
+        if (best->mode && strcmp(best->mode, "USB") == 0)
+            break; /* already have the preferred kind */
+        if (candidates[i].mode && strcmp(candidates[i].mode, "USB") == 0)
+            best = &candidates[i];
+    }
+    return best;
+}
+
+/* Lightweight check (no open()/query -- just the same directory scan
+ * ajazz_open() does) for whether a DIFFERENT, now-preferred interface
+ * has appeared since the last ajazz_open(), and for the live charging
+ * state -- both need to be re-evaluated periodically even while an
+ * existing connection is still technically alive, since a currently-
+ * open "2.4G" node doesn't vanish just because the mouse's USB cable
+ * gets plugged in afterward (see the comment on ensure_connected() in
+ * gui/main.c, which is what actually calls this). Returns 0 if no
+ * config interface is present at all; otherwise fills path_out (must be
+ * at least 280 bytes) with the currently-best candidate's path and
+ * *charging_out with whether any "USB" node exists. */
+int ajazz_best_path(char *path_out, size_t len, int *charging_out)
+{
+    ajazz_candidate_t candidates[8];
+    int n = ajazz_scan(candidates, (int)(sizeof(candidates) / sizeof(candidates[0])));
+    if (n == 0)
+        return 0;
+
+    int charging = 0;
+    for (int i = 0; i < n; i++) {
+        if (candidates[i].mode && strcmp(candidates[i].mode, "USB") == 0)
+            charging = 1;
+    }
+    if (charging_out)
+        *charging_out = charging;
+
+    const ajazz_candidate_t *best = ajazz_pick_best(candidates, n);
+    snprintf(path_out, len, "%s", best->path);
+    return 1;
+}
+
+int ajazz_open(ajazz_dev_t *dev)
+{
+    ajazz_candidate_t candidates[8];
+    int n_candidates = ajazz_scan(candidates, (int)(sizeof(candidates) / sizeof(candidates[0])));
 
     if (n_candidates > 0) {
-        const ajazz_candidate_t *best = &candidates[0];
+        const ajazz_candidate_t *best = ajazz_pick_best(candidates, n_candidates);
         int charging = 0;
         for (int i = 0; i < n_candidates; i++) {
             if (candidates[i].mode && strcmp(candidates[i].mode, "USB") == 0)
                 charging = 1;
-        }
-        /* Prefer "USB" over "2.4G" when both are present -- tested live:
-         * with the charge cable plugged in and the dongle still paired,
-         * DPI colour (family 0x04/query 0x14) SETs "ack" over the dongle
-         * but never actually stick (GET reads back all-zero every time,
-         * even seconds later), while the exact same SET/GET round-trips
-         * correctly over the USB interface. General command reliability
-         * over "USB" beats a perfectly accurate battery reading over
-         * "2.4G" -- the battery is still readable and just runs slightly
-         * high while actively charging (already surfaced as dev.charging
-         * / the "(charging)" label, so it isn't silently misleading). */
-        for (int i = 1; i < n_candidates; i++) {
-            if (best->mode && strcmp(best->mode, "USB") == 0)
-                break; /* already have the preferred kind */
-            if (candidates[i].mode && strcmp(candidates[i].mode, "USB") == 0)
-                best = &candidates[i];
         }
 
         int fd = open(best->path, O_RDWR);

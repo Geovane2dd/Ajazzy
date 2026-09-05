@@ -17,8 +17,11 @@ static void print_usage(const char *prog)
         "  dpi list                    List the 6 DPI stages\n"
         "  dpi set <1-6> <value>       Set one stage's DPI (100-26000)\n"
         "  dpi active <1-6>            Switch the active DPI stage\n"
+        "  dpi reset                   Reset all 6 DPI stages to factory defaults\n"
+        "                               (400/800/1200/1600/2400/3200)\n"
         "  dpicolor list                List the 6 DPI stages' indicator LED colours\n"
         "  dpicolor set <1-6> <RRGGBB> Set one stage's indicator LED colour\n"
+        "  dpicolor reset               Reset all 6 indicator colours to factory defaults\n"
         "  rate get                    Show the current report rate\n"
         "  rate set <125|250|500|1000> Set the report/polling rate\n"
         "  liftoff set <1|2>           Set lift-off distance (may also affect wake-on-motion)\n"
@@ -42,6 +45,9 @@ static void print_usage(const char *prog)
         "                               actions, %d+ uses a multi-packet write);\n"
         "                               each action is a key (a-z, 0-9, hex code) or a mouse\n"
         "                               button (lclick, rclick, mclick, btn4, btn5)\n"
+        "  reset factory [-y]          Restore DPI/colours/rate/lighting/sensor/keys/\n"
+        "                               macros to factory defaults (asks to confirm\n"
+        "                               unless -y is given)\n"
         "  watch                       Dump raw incoming reports (debugging)\n"
         "  raw <32 bytes hex>          Send a raw report (debugging/research)\n",
         prog, AJAZZ_MACRO_MAX_CHUNKED_ACTIONS, AJAZZ_MACRO_MAX_STEPS / 2 + 1);
@@ -217,6 +223,25 @@ static int cmd_dpi_active(int stage)
     return 0;
 }
 
+/* AJAZZ_DEFAULT_DPI -- factory values from the official installer's own
+ * per-model config, see the comment in protocol/hid.h. */
+static int cmd_dpi_reset(void)
+{
+    ajazz_dev_t dev;
+    if (open_device(&dev, AJAZZ_CAP_DPI, "dpi") != 0) return 1;
+
+    ajazz_report_t req;
+    ajazz_build_set_dpi_table(&req, AJAZZ_DEFAULT_DPI, 0);
+
+    if (ajazz_send_and_wait(&dev, &req, 1000) == 0)
+        printf("DPI reset to factory defaults (400/800/1200/1600/2400/3200).\n");
+    else
+        fprintf(stderr, "No confirmation from the device.\n");
+
+    ajazz_close(&dev);
+    return 0;
+}
+
 static int cmd_dpicolor_list(void)
 {
     ajazz_dev_t dev;
@@ -231,6 +256,25 @@ static int cmd_dpicolor_list(void)
     } else {
         printf("Could not read the DPI colour table.\n");
     }
+
+    ajazz_close(&dev);
+    return 0;
+}
+
+/* AJAZZ_DEFAULT_DPI_COLOR -- factory values from the official
+ * installer's own per-model config, see the comment in protocol/hid.h. */
+static int cmd_dpicolor_reset(void)
+{
+    ajazz_dev_t dev;
+    if (open_device(&dev, AJAZZ_CAP_DPI, "dpi") != 0) return 1;
+
+    ajazz_report_t req;
+    ajazz_build_set_dpi_colors(&req, AJAZZ_DEFAULT_DPI_COLOR);
+
+    if (ajazz_send_and_wait(&dev, &req, 1000) == 0)
+        printf("DPI colours reset to factory defaults.\n");
+    else
+        fprintf(stderr, "No confirmation from the device.\n");
 
     ajazz_close(&dev);
     return 0;
@@ -518,6 +562,37 @@ static int cmd_rgb_get(void)
             printf("Lighting: rainbow cycle (brightness=%d speed=%d)\n", st.brightness, st.speed);
             break;
     }
+
+    ajazz_close(&dev);
+    return 0;
+}
+
+/* Wire command reconstructed from decompiling the official driver (see
+ * the comment on AJAZZ_FAM_FACTORY_RESET in protocol/hid.h) -- requires
+ * typing "yes" since there's no per-section undo once sent. */
+static int cmd_factory_reset(int assume_yes)
+{
+    if (!assume_yes) {
+        printf("This resets DPI, DPI colours, report rate, lighting, sensor/power,\n"
+               "button mapping and macros to factory defaults. Type 'yes' to continue: ");
+        fflush(stdout);
+        char line[16] = {0};
+        if (!fgets(line, sizeof(line), stdin) || strncmp(line, "yes", 3) != 0) {
+            printf("Cancelled.\n");
+            return 0;
+        }
+    }
+
+    ajazz_dev_t dev;
+    if (open_device(&dev, 0, NULL) != 0) return 1;
+
+    ajazz_report_t req;
+    ajazz_build_factory_reset(&req);
+
+    if (ajazz_send_and_wait(&dev, &req, 1000) == 0)
+        printf("Factory reset sent.\n");
+    else
+        fprintf(stderr, "No confirmation from the device.\n");
 
     ajazz_close(&dev);
     return 0;
@@ -941,11 +1016,15 @@ int main(int argc, char **argv)
             return cmd_dpi_set(atoi(argv[3]), atoi(argv[4]));
         if (strcmp(argv[2], "active") == 0 && argc == 4)
             return cmd_dpi_active(atoi(argv[3]));
+        if (strcmp(argv[2], "reset") == 0)
+            return cmd_dpi_reset();
     } else if (strcmp(argv[1], "dpicolor") == 0 && argc >= 3) {
         if (strcmp(argv[2], "list") == 0)
             return cmd_dpicolor_list();
         if (strcmp(argv[2], "set") == 0 && argc == 5)
             return cmd_dpicolor_set(atoi(argv[3]), argv[4]);
+        if (strcmp(argv[2], "reset") == 0)
+            return cmd_dpicolor_reset();
     } else if (strcmp(argv[1], "rate") == 0 && argc >= 3) {
         if (strcmp(argv[2], "get") == 0)
             return cmd_rate_get();
@@ -987,6 +1066,8 @@ int main(int argc, char **argv)
     } else if (strcmp(argv[1], "macro") == 0 && argc >= 3) {
         if (strcmp(argv[2], "set") == 0 && argc >= 6)
             return cmd_macro_set(atoi(argv[3]), atoi(argv[4]), argc - 5, argv + 5);
+    } else if (strcmp(argv[1], "reset") == 0 && argc >= 3 && strcmp(argv[2], "factory") == 0) {
+        return cmd_factory_reset(argc == 4 && strcmp(argv[3], "-y") == 0);
     } else if (strcmp(argv[1], "watch") == 0) {
         return cmd_watch();
     } else if (strcmp(argv[1], "raw") == 0 && argc == 3) {

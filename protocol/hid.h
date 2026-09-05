@@ -8,15 +8,24 @@
 #define AJAZZ_PAYLOAD_LEN 27
 #define AJAZZ_DPI_STAGES 6
 
-/* Live battery raw level, found inside the 0x10 (device info) query
- * reply's payload -- see the battery note above. */
+/* Factory-default DPI value and indicator colour per stage. Pulled straight
+ * from the official installer's per-model config files (device/mouse_*.xml's
+ * <dpi_info>), not guessed. All 10 models the installer ships a config for
+ * (aj139pro, aj139v2pro, aj159, aj159mc, aj159pmc, aj179, aj179pmc, aj179v2,
+ * aj179v2max, t500) list the same six values and colours, so one shared
+ * table is enough. */
+extern const uint16_t AJAZZ_DEFAULT_DPI[AJAZZ_DPI_STAGES];
+extern const uint8_t AJAZZ_DEFAULT_DPI_COLOR[AJAZZ_DPI_STAGES][3];
+
+/* Live battery raw level, inside the 0x10 (device info) query reply's
+ * payload. See the battery note below. */
 #define AJAZZ_BATTERY_PAYLOAD_OFFSET 9
 
 /*
- * Wire format, reverse engineered from USBPcap captures of the Windows
- * driver (AJAZZ Driver (X) 1.0.7.3) talking to an AJ179 V2 MAX (dev_id
- * N625) over its 2.4G dongle, interface MI_02. Reports are 32 bytes,
- * sent as an interrupt OUT report and echoed back on interrupt IN.
+ * Wire format. Captured with USBPcap off the official Windows driver
+ * (AJAZZ Driver (X) 1.0.7.3) talking to an AJ179 V2 MAX, dev_id N625, over
+ * its 2.4G dongle (interface MI_02). Reports are 32 bytes, sent as an
+ * interrupt OUT report and echoed back on interrupt IN.
  *
  * byte0  family   - command group ("what setting")
  * byte1  0x00     - always zero
@@ -28,34 +37,30 @@
  * GET queries are sent as [queryId, 0x00, 0x00, 0x00, 0...0]. The device
  * replies with the same queryId in byte0, mode=0x01, and the opcode byte
  * set to how many payload bytes are actually meaningful (same convention
- * AJAZZ_FAM_MACRO uses on the SET side). Query IDs: 0x10 device info,
- * 0x11 key table, 0x12 report rate, 0x13 DPI table (active stage
- * included), 0x14 per-DPI-stage LED colour table, 0x15 RGB effect state,
- * 0x16 unknown, 0x17 sensor/lift-off, 0x20 battery (unreliable, see
- * below). No dedicated "active DPI stage" query -- read it out of 0x13's
+ * AJAZZ_FAM_MACRO uses on the SET side). Query IDs: 0x10 device info, 0x11
+ * key table, 0x12 report rate, 0x13 DPI table (active stage included),
+ * 0x14 per-DPI-stage LED colour table, 0x15 RGB effect state, 0x16
+ * unidentified, 0x17 sensor/lift-off, 0x20 battery (unreliable, see below).
+ * There's no dedicated "active DPI stage" query; read it out of 0x13's
  * payload.
  *
- * Battery: query 0x20's payload isn't a live reading -- captures show it
- * coming back stuck on a stale value, or with opcode 0 (no data at all).
- * The real, live-updating battery level instead sits at
- * AJAZZ_BATTERY_PAYLOAD_OFFSET (payload[9], wire byte 13) of the 0x10
- * device info reply, which this driver already queries for dev_id. This
- * was confirmed by watching it move (0x1f -> 0x1e -> 0x25) in lockstep
- * with the mouse's own unsolicited "c0 <flag> <raw> 00..." status push
- * (sent over the interrupt-in endpoint on dongle reconnect and on
- * charge-cable plug/unplug) across several captures, both matching the
- * official driver's on-screen bar count. See docs/reverse-engineering.md.
+ * Battery: query 0x20's payload isn't a live reading. It comes back stuck
+ * on a stale value, or with opcode 0 (no data at all). The real,
+ * live-updating level sits at AJAZZ_BATTERY_PAYLOAD_OFFSET (payload[9],
+ * wire byte 13) of the 0x10 device info reply, which this driver already
+ * queries for dev_id. That byte tracks the mouse's own unsolicited
+ * "c0 <flag> <raw> 00..." status push (sent on dongle reconnect and on
+ * charge-cable plug/unplug) and matches the official driver's on-screen
+ * bar count. See docs/reverse-engineering.md.
  *
- * Key table (family 0x09 SET / query 0x11 GET, opcode 0x0f): 27-byte
- * payload as nine 3-byte slots [marker][lo][hi]. Only the first five
- * slots map to physical buttons; a slot's factory default is
- * [0x10][1<<N][0x00]. A remapped button gets [0x80][lo][hi], a 16-bit
- * little-endian USB HID Consumer Page usage code (0x00E9 Volume Up,
- * 0x00EA Volume Down, 0x00E2 Mute, 0x0223 AC Home, etc) -- checked
- * against real button behaviour, not just the wire echo. Slots 5+ never
- * changed in any capture, so they're preserved byte-for-byte rather than
- * interpreted.
- */
+ * Key table (family 0x09 SET / query 0x11 GET, opcode 0x0f): a 27-byte
+ * payload as nine 3-byte slots, [marker][lo][hi]. Only the first five map
+ * to physical buttons; a slot's factory default is [0x10][1<<N][0x00]. A
+ * remapped button gets [0x80][lo][hi], a 16-bit little-endian USB HID
+ * Consumer Page usage code (0x00E9 Volume Up, 0x00EA Volume Down, 0x00E2
+ * Mute, 0x0223 AC Home, etc.). Checked against real button behaviour, not
+ * just the wire echo. Slots 5+ are preserved byte-for-byte rather than
+ * interpreted; they never change no matter what the first five slots do. */
 
 typedef struct {
     uint8_t family;
@@ -66,7 +71,7 @@ typedef struct {
     uint8_t checksum;
 } __attribute__((packed)) ajazz_report_t;
 
-/* command families (byte0) used by SET commands */
+/* Command families (byte0) used by SET commands */
 enum {
     AJAZZ_FAM_REPORT_RATE  = 0x02, /* opcode 0x01: polling interval, see below */
     AJAZZ_FAM_DPI_TABLE    = 0x03, /* opcode 0x25: all 6 DPI stages, active
@@ -79,60 +84,73 @@ enum {
                                        idle light-off, see below */
     AJAZZ_FAM_MACRO        = 0x08, /* opcode = length of used payload bytes */
     AJAZZ_FAM_KEY_TABLE    = 0x09, /* opcode 0x0f: button/key mapping table */
+    AJAZZ_FAM_FACTORY_RESET = 0x0f, /* opcode 0x01, payload[0]=0xff: restores
+                                        everything (DPI, colours, report
+                                        rate, lighting, sensor, buttons,
+                                        macros) to factory defaults */
 };
 
-/* Per-DPI-stage indicator LED colour, SET side. Found by decompiling the
- * official Windows driver (DeviceMainDlg::SetMouseDPIColorData) rather
- * than a wire capture -- confirmed working against a real AJ179 V2 MAX
- * (colour round-tripped through dpicolor set/list, and matched the
- * mouse's actual LED). family 0x04, mode 0x01, opcode 0x12
- * (18 = AJAZZ_DPI_STAGES * 3). payload is 6 back-to-back {R,G,B}
- * triples, one per DPI stage in order -- the mirror image of
- * AJAZZ_QUERY_DPI_COLOR_TABLE's (0x14) reply shape. */
+/* Restores the whole mouse to factory defaults in one shot; the same
+ * command the official driver's "Restore Factory Settings" button sends.
+ * Reconstructed via Ghidra decompilation
+ * (DeviceMainDlg::SetMouseRestoreFactoryData) rather than observed on the
+ * wire, so treat it as decompiled-but-unverified. It should work, and
+ * real-hardware reports either way are welcome. No per-section undo once
+ * it's sent. */
+void ajazz_build_factory_reset(ajazz_report_t *r);
+
+/* Per-DPI-stage indicator LED colour, SET side. Reconstructed via Ghidra
+ * decompilation (DeviceMainDlg::SetMouseDPIColorData) rather than a wire
+ * capture, but confirmed against real hardware: the colour round-trips
+ * through dpicolor set/list and matches the mouse's actual LED. Family
+ * 0x04, mode 0x01, opcode 0x12 (18 = AJAZZ_DPI_STAGES * 3). Payload is 6
+ * back-to-back {R,G,B} triples, one per DPI stage in order, the mirror
+ * image of AJAZZ_QUERY_DPI_COLOR_TABLE's (0x14) reply shape. */
 void ajazz_build_set_dpi_colors(ajazz_report_t *r, const uint8_t colors[AJAZZ_DPI_STAGES][3]);
 
-/* Parses a 0x14 query reply's payload (6 back-to-back {R,G,B} triples,
- * one per DPI stage) into a plain array. GET side, unlike the SET
- * command above, has been seen on the wire -- see hid.h's protocol
- * comment block. */
+/* Parses a 0x14 query reply's payload (6 back-to-back {R,G,B} triples, one
+ * per DPI stage) into a plain array. Unlike the SET command above, this
+ * GET side has been seen on the wire; see the protocol comment block near
+ * the top of this file. */
 void ajazz_parse_dpi_color_table(const ajazz_report_t *r, uint8_t colors[AJAZZ_DPI_STAGES][3]);
 
 /* Report rate: family 0x02, opcode 0x01, payload[0] = interval in ms
- * (8/4/2/1 for 125/250/500/1000 Hz). This family is report rate only --
- * use AJAZZ_FAM_DPI_TABLE for DPI stage, they're independent commands. */
+ * (8/4/2/1 for 125/250/500/1000 Hz). Report rate only -- use
+ * AJAZZ_FAM_DPI_TABLE for DPI stage, they're independent commands. */
 
 #define AJAZZ_KEY_SLOTS 5
 
 /* A macro fits in one report: 27-byte payload = 1 marker byte + up to 6
  * four-byte steps (24 bytes), 2 bytes spare. Longer macros need a
- * multi-report chunked transfer -- see AJAZZ_MACRO_MAX_CHUNKED_STEPS. */
+ * multi-report chunked transfer, see AJAZZ_MACRO_MAX_CHUNKED_STEPS. */
 #define AJAZZ_MACRO_MAX_STEPS 6
 
-/* Chunked writes for macros past AJAZZ_MACRO_MAX_STEPS: the byte stream
- * `[0x03, step0, step1, ...]` (NOT step-aligned -- a step's bytes can
- * straddle a chunk boundary) is split into AJAZZ_PAYLOAD_LEN-byte
+/* Chunked writes for macros past AJAZZ_MACRO_MAX_STEPS. The byte stream
+ * `[0x03, step0, step1, ...]` isn't step-aligned (a step's bytes can
+ * straddle a chunk boundary) and gets split into AJAZZ_PAYLOAD_LEN-byte
  * pieces. Each chunk's mode byte is (chunk_index << 4) | total_chunks
- * (both 0-based/1-based respectively, so a 2-chunk transfer sends mode
- * 0x02 then 0x12), and opcode is that chunk's byte count. Confirmed by
- * decompiling the official driver's
- * DeviceMainDlg::SetMouseKeyMacroData(int,int) overload -- earlier this
- * was reconstructed from a single 2-chunk capture with the low nibble
- * wrongly hardcoded to 0x02, which only worked by coincidence for
- * exactly 2 chunks.
+ * (0-based, 1-based, so a 2-chunk transfer sends mode 0x02 then 0x12), and
+ * opcode is that chunk's byte count. Confirmed via Ghidra decompilation of
+ * the official driver's DeviceMainDlg::SetMouseKeyMacroData(int,int)
+ * overload -- a wire capture alone can't pin down the total_chunks half of
+ * that formula, since any single capture only ever shows one chunk count
+ * (a mode byte of 0x02/0x12 for a 2-chunk transfer looks identical to a
+ * hardcoded low nibble of 0x02 unless a transfer with a different chunk
+ * count also gets captured).
  *
- * The mode byte's nibbles cap both chunk_index and total_chunks at 15,
- * so the wire format tops out at 15 chunks * AJAZZ_PAYLOAD_LEN bytes,
- * minus the 1-byte header, divided into 4-byte steps. That wire-format
- * ceiling is what the constants below reflect; the mouse's actual
- * onboard macro memory limit is still untested past what's been tried
- * by hand -- if the device rejects (or silently drops) a very long
- * macro, that's a firmware limit below this ceiling, not a bug here. */
+ * The mode byte's nibbles cap both chunk_index and total_chunks at 15, so
+ * the wire format tops out at 15 chunks * AJAZZ_PAYLOAD_LEN bytes minus
+ * the 1-byte header, divided into 4-byte steps. The constants below
+ * reflect that ceiling. The mouse's actual onboard macro memory limit is
+ * untested past what's been tried by hand -- if the device rejects or
+ * silently drops a very long macro, that's a firmware limit below this
+ * ceiling, not a bug here. */
 #define AJAZZ_MACRO_MAX_CHUNKS 15
 #define AJAZZ_MACRO_MAX_CHUNKED_STEPS \
     (((AJAZZ_MACRO_MAX_CHUNKS * AJAZZ_PAYLOAD_LEN) - 1) / 4)
 #define AJAZZ_MACRO_MAX_CHUNKED_ACTIONS (AJAZZ_MACRO_MAX_CHUNKED_STEPS / 2)
 
-/* standard USB HID keyboard report modifier bits, for
+/* Standard USB HID keyboard report modifier bits, for
  * ajazz_key_slot_set_keyboard() */
 enum {
     AJAZZ_MOD_LCTRL  = 0x01,
@@ -145,7 +163,7 @@ enum {
     AJAZZ_MOD_RGUI   = 0x80,
 };
 
-/* common USB HID Consumer Page usage codes, for ajazz_key_slot_set_consumer() */
+/* Common USB HID Consumer Page usage codes, for ajazz_key_slot_set_consumer() */
 enum {
     AJAZZ_USAGE_VOLUME_UP    = 0x00E9,
     AJAZZ_USAGE_VOLUME_DOWN  = 0x00EA,
@@ -161,17 +179,17 @@ enum {
     AJAZZ_USAGE_AC_BOOKMARKS = 0x022A,
 };
 
-/* Query IDs. Names match the firmware's own debug strings (found in the
- * Windows driver's bundled OTA image): "cmd get all key", "cmd get
+/* Query IDs. Names match the firmware's own debug strings, found in the
+ * Windows driver's bundled OTA image: "cmd get all key", "cmd get
  * reportrate", "cmd get dpi value", "cmd get dpi color", "cmd get led
  * mode", "cmd get Sensor advanced par", in that order. */
 enum {
     AJAZZ_QUERY_DEVICE_INFO  = 0x10,
     AJAZZ_QUERY_KEY_TABLE    = 0x11,
 
-    /* Report rate: set 125, 500 and 1000 Hz in turn and payload[0]
-     * matches the interval-ms value each time (8/2/1). No dedicated
-     * "active DPI stage" query exists; read that from
+    /* Report rate: setting 125, 500, and 1000 Hz in turn produces
+     * payload[0] values of 8, 2, and 1 (interval in ms). There's no
+     * dedicated "active DPI stage" query; read that from
      * AJAZZ_QUERY_DPI_TABLE's high nibble instead
      * (ajazz_dpi_table_active_stage()). */
     AJAZZ_QUERY_REPORT_RATE  = 0x12,
@@ -179,17 +197,17 @@ enum {
     AJAZZ_QUERY_DPI_TABLE    = 0x13,
 
     /* Per-DPI-stage LED colour table, not a custom palette -- see "The
-     * DPI table" in docs/reverse-engineering.md. Reply's opcode =
-     * colour_count*3, then that many raw R,G,B bytes, no header. */
+     * DPI table" in docs/reverse-engineering.md. Reply's opcode equals
+     * colour_count*3, followed by that many raw R,G,B bytes, no header. */
     AJAZZ_QUERY_DPI_COLOR_TABLE = 0x14,
 
-    /* RGB effect state ("cmd get led mode"). Cycling off/rainbow/constant
-     * and reading back after each change gives a stable opcode per
-     * effect: 0x01 off, 0x05 constant, 0x18 rainbow. See
-     * ajazz_parse_led_mode(). */
+    /* RGB effect state ("cmd get led mode"). Cycling through
+     * off/rainbow/constant and reading back after each change gives a
+     * stable opcode per effect: 0x01 off, 0x05 constant, 0x18 rainbow.
+     * See ajazz_parse_led_mode(). */
     AJAZZ_QUERY_LED_MODE     = 0x15,
 
-    AJAZZ_QUERY_UNKNOWN16    = 0x16, /* not tied to anything specific yet */
+    AJAZZ_QUERY_UNKNOWN16    = 0x16, /* not yet tied to a specific setting */
     AJAZZ_QUERY_SENSOR       = 0x17,
     AJAZZ_QUERY_BATTERY      = 0x20,
 };
@@ -198,9 +216,9 @@ void ajazz_finalize(ajazz_report_t *r);
 
 void ajazz_build_query(ajazz_report_t *r, uint8_t query_id);
 
-/* Writes all 6 DPI stages and switches the active one in a single report
- * -- this is how the real driver changes DPI stage, there's no separate
- * "just switch stage" command. To change only the active stage, query
+/* Writes all 6 DPI stages and switches the active one in a single report;
+ * that's how the real driver changes DPI stage, there's no separate "just
+ * switch stage" command. To change only the active stage, query
  * AJAZZ_QUERY_DPI_TABLE, parse it with ajazz_parse_dpi_table(), and call
  * this back with the same dpi[] values and a new active_stage_0based. */
 void ajazz_build_set_dpi_table(ajazz_report_t *r, const uint16_t dpi[AJAZZ_DPI_STAGES], uint8_t active_stage_0based);
@@ -208,94 +226,96 @@ void ajazz_build_set_report_rate(ajazz_report_t *r, uint8_t rate_index);
 void ajazz_build_set_rgb_rainbow(ajazz_report_t *r, uint8_t brightness, uint8_t speed);
 
 /* Constant/solid colour, no animation. payload = [0x03, (brightness<<4)|0x02,
- * 0xff], same 0-4 brightness scale as rainbow. */
+ * 0xff], the same 0-4 brightness scale as rainbow. */
 void ajazz_build_set_rgb_constant(ajazz_report_t *r, uint8_t brightness);
 
 void ajazz_build_set_rgb_off(ajazz_report_t *r);
 
 /* AJAZZ_FAM_SENSOR (0x07 opcode 0x04) packs four unrelated settings into
- * one report -- isolated captures each showed exactly one byte changing:
+ * one report; isolated wire captures each showed exactly one byte
+ * changing:
  *
- *   payload[0] = auto-sleep timer, units of 10 seconds. Matches all 8
+ *   payload[0] = auto-sleep timer, in units of 10 seconds. Matches all 8
  *                values in the original driver's sleep dropdown
  *                (10s/30s/1m/2m/5m/10m/20m/30m -> 1/3/6/12/30/60/120/180).
- *   payload[1] = lift-off distance (0/1 -> 1mm/2mm) -- but a separate
- *                capture of the "wake mouse on motion" toggle also
- *                landed on this same byte. Not resolved whether that's
- *                really the same setting or two controls sharing a byte.
+ *   payload[1] = lift-off distance (0/1 -> 1mm/2mm), but a separate
+ *                capture of the "wake mouse on motion" toggle also landed
+ *                on this same byte. Not resolved whether that's really
+ *                the same setting or two controls sharing a byte.
  *   payload[2] = "turn light off when idle" (0/1).
  *   payload[3] = 0x08, constant in every capture so far.
  *
- * Since all four share a report, writing one without reading the others
- * first silently resets them -- same hazard as the key table. Use
- * ajazz_build_sensor_from_query() plus the setters below rather than
- * building a report from scratch. */
+ * Writing one without first reading the others silently resets them, the
+ * same hazard as the key table. Use ajazz_build_sensor_from_query()
+ * together with the setters below rather than building a report from
+ * scratch. */
 void ajazz_build_sensor_from_query(ajazz_report_t *out, const ajazz_report_t *query_reply);
 
-/* Rounds `seconds` down to the nearest 10 and clamps to the payload
- * byte's range (0-2550s). The original driver's UI only goes up to 30
- * minutes. */
+/* Rounds `seconds` down to the nearest 10 and clamps to the payload byte's
+ * range (0-2550s). The original driver's UI only goes up to 30 minutes. */
 void ajazz_sensor_set_sleep_seconds(ajazz_report_t *r, uint16_t seconds);
 
-/* May also read as "wake mouse on motion" on the device side -- see the
+/* May also read as "wake mouse on motion" on the device side; see the
  * comment on ajazz_build_sensor_from_query() above. */
 void ajazz_sensor_set_liftoff(ajazz_report_t *r, uint8_t level);
 
-/* Turn the light off once the mouse has been idle -- 0/1. */
+/* Turns the light off once the mouse has been idle -- 0/1. */
 void ajazz_sensor_set_light_idle_off(ajazz_report_t *r, uint8_t enabled);
 
-/* Resets the key table to factory defaults. Verified on real hardware:
- * a button custom-mapped away from its default went back to it after
- * this. Note the original Windows driver's own UI can look stale
- * afterward -- it reads its local SQLite database, not the device, so a
- * reset issued from outside that app won't show up there even though
- * the hardware really did change.
+/* Resets the key table to factory defaults. Confirmed against real
+ * hardware: a button that had been custom-mapped away from its default
+ * returned to it after this command. The official Windows driver's own UI
+ * can look stale afterward, though -- it reads from its local SQLite
+ * database rather than the device, so a reset issued from outside that
+ * application won't show up there even though the hardware genuinely
+ * changed.
  *
- * Remapping to an arbitrary function isn't implemented -- only a
- * handful of example codes have been seen in captures, not a full
+ * Remapping to an arbitrary function isn't implemented; only a handful of
+ * example codes have turned up in captures, not a full
  * function-id-to-byte codebook. */
 void ajazz_build_reset_keys(ajazz_report_t *r);
 
 /* Turns a query 0x11 reply into a ready-to-edit SET report. Follow with
- * ajazz_key_slot_set_consumer() or friends to change one slot. */
+ * ajazz_key_slot_set_consumer() or similar to change one slot. */
 void ajazz_build_key_table_from_query(ajazz_report_t *out, const ajazz_report_t *query_reply);
 
 /* Remaps button `slot` (0-based) to a USB HID Consumer Page usage code.
  * `r` must already hold a full key table (from
- * ajazz_build_key_table_from_query()) -- only this slot changes. */
+ * ajazz_build_key_table_from_query()); only this slot changes. */
 void ajazz_key_slot_set_consumer(ajazz_report_t *r, int slot, uint16_t consumer_usage);
 
 /* Remaps button `slot` to a keyboard key: `modifiers` is the usual
- * keyboard-report bitmask (bit0 LCtrl, bit1 LShift, bit2 LAlt, bit3
- * LGui, bit4-7 the right-hand versions), `keycode` a USB HID Keyboard
- * Page usage (e.g. 0x04 = 'A'). */
+ * keyboard-report bitmask (bit0 LCtrl, bit1 LShift, bit2 LAlt, bit3 LGui,
+ * bits 4-7 the right-hand versions), `keycode` a USB HID Keyboard Page
+ * usage (e.g. 0x04 = 'A'). */
 void ajazz_key_slot_set_keyboard(ajazz_report_t *r, int slot, uint8_t modifiers, uint8_t keycode);
 
 /* Restores button `slot` to its native/default function. */
 void ajazz_key_slot_reset_default(ajazz_report_t *r, int slot);
 
 /* Rapid-fire/auto-click: repeats a click every `interval` (5-255) for
- * `number` repeats (0-255) while held. Structurally confirmed against
- * one capture (interval=5, number=1); exact behaviour at edge values
- * like number=0 isn't verified. */
+ * `number` repeats (0-255) while held. Confirmed structurally against one
+ * wire capture (interval=5, number=1); edge values such as number=0 are
+ * untested. */
 void ajazz_key_slot_set_fire(ajazz_report_t *r, int slot, uint8_t interval, uint8_t number);
 
 /*
  * Macros. One AJAZZ_FAM_MACRO SET report: mode 0x01, opcode = number of
  * payload bytes used (not a fixed id). payload[0] is always 0x03,
  * followed by up to AJAZZ_MACRO_MAX_STEPS four-byte steps:
- * [kind, delay_ms, 0x00, value].
- *   kind = AJAZZ_MACRO_MOUSE_DOWN/UP or AJAZZ_MACRO_KEY_DOWN/UP
- *   delay_ms = pause after this step, in ms
- *   value = mouse button bit flag (1/2/4/...) for mouse steps, or a USB
- *           HID Keyboard Page usage code for key steps
+ * [kind, delay_lo, delay_hi, value].
+ *   kind     = AJAZZ_MACRO_MOUSE_DOWN/UP or AJAZZ_MACRO_KEY_DOWN/UP
+ *   delay_ms = pause after this step, in ms (16-bit, see
+ *              ajazz_macro_step_t below)
+ *   value    = mouse button bit flag (1/2/4/...) for mouse steps, or a
+ *              USB HID Keyboard Page usage code for key steps
  *
  * Assigning that macro to a button is a second write to the key table:
  * the slot's marker becomes 0x90 with a constant trailing [0x23, 0x01].
  * That pair never varied across captures with different macros, so the
- * device plays back whichever macro content was written most recently
- * for that button rather than looking one up by id. Write the macro
- * content before assigning it.
+ * device plays back whichever macro content was written most recently for
+ * that button rather than looking one up by id. Write the macro content
+ * before assigning it.
  */
 typedef enum {
     AJAZZ_MACRO_MOUSE_DOWN = 0x10,
@@ -306,55 +326,56 @@ typedef enum {
 
 typedef struct {
     uint8_t kind;       /* an ajazz_macro_step_kind_t value */
-    uint16_t delay_ms;  /* pause after this step, in milliseconds -- 16-bit
-                            LE on the wire (bytes 1-2 of the step), NOT a
-                            1-byte delay plus a constant byte; confirmed by
-                            decompiling the official driver's
-                            DeviceMainDlg::GetMouseMacroData */
+    uint16_t delay_ms;  /* pause after this step, in milliseconds. 16-bit
+                            little-endian on the wire (bytes 1-2 of the
+                            step), not a 1-byte delay plus a constant byte.
+                            Confirmed via Ghidra decompilation of the
+                            official driver's DeviceMainDlg::GetMouseMacroData */
     uint8_t value;      /* mouse button bit, or USB HID keyboard usage code */
 } ajazz_macro_step_t;
 
 /* Builds the macro-content SET report for up to AJAZZ_MACRO_MAX_STEPS
- * steps. Extra steps are silently dropped -- check the count yourself
- * if you want to report that clearly. */
+ * steps. Extra steps are silently dropped; check the count yourself if
+ * you need to report that clearly. */
 void ajazz_build_macro_content(ajazz_report_t *r, const ajazz_macro_step_t *steps, int n_steps);
 
-/* Same idea for up to AJAZZ_MACRO_MAX_CHUNKED_STEPS steps: one report if
- * it fits, chunked writes otherwise (reconstructed from the official
- * driver, not yet round-tripped against real hardware past a couple of
- * chunks -- see the comment on AJAZZ_MACRO_MAX_CHUNKED_STEPS). `out`
- * needs room for at least
+/* Same idea for up to AJAZZ_MACRO_MAX_CHUNKED_STEPS steps: a single report
+ * if it fits, chunked writes otherwise. Reconstructed via Ghidra
+ * decompilation of the official driver; confirmed on the wire only up to
+ * a couple of chunks so far, see the comment on
+ * AJAZZ_MACRO_MAX_CHUNKED_STEPS. `out` needs room for at least
  * (AJAZZ_MACRO_MAX_CHUNKED_STEPS * 4 + 1 + AJAZZ_PAYLOAD_LEN - 1) /
  * AJAZZ_PAYLOAD_LEN reports. Send them in order. Returns the report
  * count, or -1 if n_steps is over the limit. */
 int ajazz_build_macro_content_chunked(ajazz_report_t *out, int max_out, const ajazz_macro_step_t *steps, int n_steps);
 
 /* Marks button `slot` (0-based) as macro-triggering. `r` must already
- * hold a full key table. Send the macro content first -- see above. */
+ * hold a full key table. Send the macro content first, see above. */
 void ajazz_key_slot_set_macro(ajazz_report_t *r, int slot);
 
 /* Parses a DPI table payload (query 0x13 reply, or a family 0x03 report). */
 void ajazz_parse_dpi_table(const ajazz_report_t *r, uint16_t dpi_out[AJAZZ_DPI_STAGES]);
 
-/* 0-based active DPI stage, from a DPI table payload's high nibble.
- * There's no separate query for this. */
+/* 0-based active DPI stage, from a DPI table payload's high nibble. No
+ * separate query exists for this. */
 int ajazz_dpi_table_active_stage(const ajazz_report_t *r);
 
-/* Inverse of ajazz_build_set_report_rate()'s interval table -- turns a
+/* Inverse of ajazz_build_set_report_rate()'s interval table; turns a
  * report-rate payload[0] value back into Hz. Returns 0 if it doesn't
  * match one of the four known intervals. */
 int ajazz_report_rate_hz(uint8_t interval_ms);
 
 /* AJAZZ_QUERY_LED_MODE reply decoding. `effect` is the reply's opcode
- * byte -- compare against AJAZZ_LED_OFF/CONSTANT/RAINBOW rather than
- * assuming those are the only values possible. All three confirmed live
- * by cycling through them and reading back; constant's brightness
- * matched at all 5 levels. Odd detail: AJAZZ_LED_OFF (0x01) doesn't
- * match the "off" SET command's own opcode (0x02) the way constant and
- * rainbow's do -- no explanation, that's just what the device sends.
- * `speed` only means anything for AJAZZ_LED_RAINBOW. Returns 0 for a
- * recognized effect, -1 otherwise (still fills in effect=r->opcode so
- * callers can show something without special-casing the error). */
+ * byte; compare it against AJAZZ_LED_OFF/CONSTANT/RAINBOW rather than
+ * assuming those are the only possible values. Confirmed by cycling
+ * through all three via wire capture and reading back after each change;
+ * constant's brightness matched at all 5 levels. One loose end:
+ * AJAZZ_LED_OFF (0x01) doesn't match the "off" SET command's own opcode
+ * (0x02) the way constant and rainbow's do, and there's no explanation
+ * for that beyond it being what the device sends. `speed` only means
+ * anything for AJAZZ_LED_RAINBOW. Returns 0 for a recognized effect, -1
+ * otherwise (still fills in effect=r->opcode so callers can show
+ * something without special-casing the error). */
 typedef enum {
     AJAZZ_LED_OFF      = 0x01,
     AJAZZ_LED_CONSTANT = 0x05,
@@ -369,14 +390,14 @@ typedef struct {
 
 int ajazz_parse_led_mode(const ajazz_report_t *r, ajazz_led_state_t *out);
 
-/* Takes the raw byte at AJAZZ_BATTERY_PAYLOAD_OFFSET in a 0x10 device
- * info reply (NOT the broken 0x20 query -- see the note above). It IS a
- * plain 0-100 percentage, split into even quarters -- confirmed by
- * decompiling the official Windows driver (MUI.dll,
+/* Takes the raw byte at AJAZZ_BATTERY_PAYLOAD_OFFSET in a 0x10 device info
+ * reply (not the broken 0x20 query, see the note above). It's a plain
+ * 0-100 percentage, split into even quarters. Confirmed via Ghidra
+ * decompilation of the official Windows driver (MUI.dll,
  * DUI::BatteryCtrl::DrawControl @ 0x1f9b0), which compares
  * this->m_battery_value against 0x19/0x32/0x4b (25/50/75) to pick how
- * many of the 4 bars to fill. See docs/reverse-engineering.md's battery
- * section. */
+ * many of the 4 bars to fill. See the battery section in
+ * docs/reverse-engineering.md. */
 const char *ajazz_battery_label(uint8_t raw);
 
 #endif

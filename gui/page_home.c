@@ -319,6 +319,45 @@ static GtkWidget *build_hero(App *app)
     return hero;
 }
 
+/* Wire command reconstructed from decompiling the official driver's
+ * "Restore Factory Settings" button (DeviceMainDlg::
+ * SetMouseRestoreFactoryData) -- see the comment on
+ * AJAZZ_FAM_FACTORY_RESET in protocol/hid.h. */
+static void on_factory_reset_response(AdwAlertDialog *dialog, const char *response, gpointer user_data)
+{
+    (void)dialog;
+    App *app = user_data;
+    if (strcmp(response, "reset") != 0)
+        return;
+    if (!ensure_connected(app)) { toast(app, _("Connect the mouse first.")); return; }
+
+    ajazz_report_t req;
+    ajazz_build_factory_reset(&req);
+    if (ajazz_send_and_wait_mt(app, &req, 1000) == 0) {
+        toast(app, _("Factory reset sent."));
+        refresh_home(app);
+    } else {
+        toast(app, _("Failed to send the factory reset."));
+    }
+}
+
+static void on_factory_reset_clicked(GtkButton *btn, gpointer user_data)
+{
+    (void)btn;
+    App *app = user_data;
+    AdwAlertDialog *dialog = ADW_ALERT_DIALOG(adw_alert_dialog_new(
+        _("Restore factory defaults?"),
+        _("This resets DPI, DPI colours, report rate, lighting, sensor/power, "
+          "button mapping and macros. There's no undo once sent.")));
+    adw_alert_dialog_add_response(dialog, "cancel", _("Cancel"));
+    adw_alert_dialog_add_response(dialog, "reset", _("Restore"));
+    adw_alert_dialog_set_response_appearance(dialog, "reset", ADW_RESPONSE_DESTRUCTIVE);
+    adw_alert_dialog_set_default_response(dialog, "cancel");
+    adw_alert_dialog_set_close_response(dialog, "cancel");
+    g_signal_connect(dialog, "response", G_CALLBACK(on_factory_reset_response), app);
+    adw_dialog_present(ADW_DIALOG(dialog), GTK_WIDGET(app->win));
+}
+
 GtkWidget *build_home_page(App *app)
 {
     GtkWidget *page = adw_preferences_page_new();
@@ -369,6 +408,16 @@ GtkWidget *build_home_page(App *app)
     gtk_widget_set_margin_end(issues, 6);
     adw_preferences_group_add(issues_group, issues);
     adw_preferences_page_add(ADW_PREFERENCES_PAGE(page), issues_group);
+
+    AdwPreferencesGroup *danger_group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
+    adw_preferences_group_set_title(danger_group, _("Danger zone"));
+    GtkWidget *btn_factory_reset = gtk_button_new_with_label(_("Restore factory defaults"));
+    gtk_widget_add_css_class(btn_factory_reset, "destructive-action");
+    gtk_widget_add_css_class(btn_factory_reset, "pill");
+    gtk_widget_set_halign(btn_factory_reset, GTK_ALIGN_START);
+    g_signal_connect(btn_factory_reset, "clicked", G_CALLBACK(on_factory_reset_clicked), app);
+    adw_preferences_group_add(danger_group, btn_factory_reset);
+    adw_preferences_page_add(ADW_PREFERENCES_PAGE(page), danger_group);
 
     return page;
 }

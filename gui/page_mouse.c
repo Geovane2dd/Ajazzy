@@ -217,6 +217,25 @@ static void on_dpi_apply(GtkButton *btn, gpointer user_data)
     toast(app, ok ? _("DPI applied.") : _("Failed to apply DPI."));
 }
 
+/* AJAZZ_DEFAULT_DPI -- factory values from the official installer's own
+ * per-model config, see the comment in protocol/hid.h. */
+static void on_dpi_reset_clicked(GtkButton *btn, gpointer user_data)
+{
+    (void)btn;
+    App *app = user_data;
+    if (!ensure_connected(app)) { toast(app, _("Connect the mouse first.")); return; }
+
+    memcpy(app->dpi_cache, AJAZZ_DEFAULT_DPI, sizeof(app->dpi_cache));
+
+    ajazz_report_t req;
+    ajazz_build_set_dpi_table(&req, app->dpi_cache, 0);
+    gboolean ok = (ajazz_send_and_wait_mt(app, &req, 1000) == 0);
+
+    if (ok)
+        dpi_select(app, 0);
+    toast(app, ok ? _("DPI reset to factory defaults.") : _("Failed to reset DPI."));
+}
+
 /* Applies immediately on pick (matches the official driver's own DPI
  * colour picker), sending the full 6-stage table with just this one
  * stage changed -- see ajazz_build_set_dpi_colors(). */
@@ -237,6 +256,39 @@ static void on_dpi_color_changed(GtkColorDialogButton *btn, GParamSpec *pspec, g
     gboolean ok = (ajazz_send_and_wait_mt(app, &req, 1000) == 0);
 
     toast(app, ok ? _("DPI colour applied.") : _("Failed to apply DPI colour."));
+}
+
+/* AJAZZ_DEFAULT_DPI_COLOR -- factory values from the official
+ * installer's own per-model config, see the comment in protocol/hid.h. */
+static void on_dpicolor_reset_clicked(GtkButton *btn, gpointer user_data)
+{
+    (void)btn;
+    App *app = user_data;
+    if (!ensure_connected(app)) { toast(app, _("Connect the mouse first.")); return; }
+
+    memcpy(app->dpi_color_cache, AJAZZ_DEFAULT_DPI_COLOR, sizeof(app->dpi_color_cache));
+
+    ajazz_report_t req;
+    ajazz_build_set_dpi_colors(&req, app->dpi_color_cache);
+    gboolean ok = (ajazz_send_and_wait_mt(app, &req, 1000) == 0);
+
+    if (ok) {
+        for (int i = 0; i < AJAZZ_DPI_STAGES; i++) {
+            GdkRGBA rgba = {
+                .red = app->dpi_color_cache[i][0] / 255.0f,
+                .green = app->dpi_color_cache[i][1] / 255.0f,
+                .blue = app->dpi_color_cache[i][2] / 255.0f,
+                .alpha = 1.0f,
+            };
+            guint n = g_signal_handlers_block_matched(app->dpi_color_btn[i], G_SIGNAL_MATCH_FUNC,
+                0, 0, NULL, G_CALLBACK(on_dpi_color_changed), NULL);
+            gtk_color_dialog_button_set_rgba(app->dpi_color_btn[i], &rgba);
+            g_signal_handlers_unblock_matched(app->dpi_color_btn[i], G_SIGNAL_MATCH_FUNC,
+                0, 0, NULL, G_CALLBACK(on_dpi_color_changed), NULL);
+            (void)n;
+        }
+    }
+    toast(app, ok ? _("DPI colours reset to factory defaults.") : _("Failed to reset DPI colours."));
 }
 
 static void on_rate_apply(GtkButton *btn, gpointer user_data)
@@ -328,13 +380,22 @@ GtkWidget *build_mouse_config_page(App *app)
     adw_action_row_add_suffix(app->dpi_value_row, GTK_WIDGET(app->dpi_value_spin));
     adw_preferences_group_add(dpi_group, GTK_WIDGET(app->dpi_value_row));
 
+    GtkWidget *dpi_btn_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_set_margin_top(dpi_btn_box, 4);
+
     GtkWidget *dpi_apply = gtk_button_new_with_label(_("Apply DPI"));
     gtk_widget_add_css_class(dpi_apply, "suggested-action");
     gtk_widget_add_css_class(dpi_apply, "pill");
-    gtk_widget_set_halign(dpi_apply, GTK_ALIGN_START);
-    gtk_widget_set_margin_top(dpi_apply, 4);
     g_signal_connect(dpi_apply, "clicked", G_CALLBACK(on_dpi_apply), app);
-    adw_preferences_group_add(dpi_group, dpi_apply);
+    gtk_box_append(GTK_BOX(dpi_btn_box), dpi_apply);
+
+    GtkWidget *dpi_reset = gtk_button_new_with_label(_("Reset to factory defaults"));
+    gtk_widget_add_css_class(dpi_reset, "pill");
+    g_signal_connect(dpi_reset, "clicked", G_CALLBACK(on_dpi_reset_clicked), app);
+    gtk_box_append(GTK_BOX(dpi_btn_box), dpi_reset);
+
+    gtk_widget_set_halign(dpi_btn_box, GTK_ALIGN_START);
+    adw_preferences_group_add(dpi_group, dpi_btn_box);
     adw_preferences_page_add(ADW_PREFERENCES_PAGE(page), dpi_group);
 
     /* dpi indicator colour -- family 0x04, see docs/reverse-engineering.md.
@@ -363,6 +424,12 @@ GtkWidget *build_mouse_config_page(App *app)
         adw_action_row_add_suffix(row, btn);
         adw_preferences_group_add(dpi_color_group, GTK_WIDGET(row));
     }
+    GtkWidget *dpicolor_reset = gtk_button_new_with_label(_("Reset to factory defaults"));
+    gtk_widget_add_css_class(dpicolor_reset, "pill");
+    gtk_widget_set_halign(dpicolor_reset, GTK_ALIGN_START);
+    gtk_widget_set_margin_top(dpicolor_reset, 4);
+    g_signal_connect(dpicolor_reset, "clicked", G_CALLBACK(on_dpicolor_reset_clicked), app);
+    adw_preferences_group_add(dpi_color_group, dpicolor_reset);
     adw_preferences_page_add(ADW_PREFERENCES_PAGE(page), dpi_color_group);
 
     /* report rate */

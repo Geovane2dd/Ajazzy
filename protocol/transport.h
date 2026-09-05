@@ -15,10 +15,10 @@ typedef struct {
     char mode[8];        /* "USB" or "2.4G", from the device table entry that
                              matched the interface ajazz_open() actually
                              picked. ajazz_open() prefers "USB" over "2.4G"
-                             when both are present -- SET/GET round-trips
-                             (confirmed live) are unreliable over the 2.4G
-                             dongle when the mouse is also on its charge
-                             cable, while USB round-trips correctly. */
+                             when both are present: SET/GET round-trips over
+                             the 2.4G dongle aren't reliable once the mouse
+                             is also on its charge cable, while USB stays
+                             fine. */
     int charging;        /* 1 if a "USB"-mode hidraw node was present at
                              ajazz_open() time -- since mode is normally
                              "USB" too in that situation (see above), this
@@ -32,6 +32,17 @@ typedef struct {
  * (MI_02) the configuration protocol talks to. Returns 0 on success. */
 int ajazz_open(ajazz_dev_t *dev);
 void ajazz_close(ajazz_dev_t *dev);
+
+/* Cheap re-check (directory scan only, no open()/query) for whether a
+ * different interface is now the preferred one -- e.g. the mouse's USB
+ * cable got plugged in after an existing "2.4G" connection was already
+ * open, which doesn't make that 2.4G node disappear, so a caller who
+ * only checks "is my current path still there" (like a naive
+ * reconnect-on-unplug check) would never notice and would keep talking
+ * to the dongle indefinitely. Returns 0 if no config interface is
+ * present; otherwise fills path_out (>= 280 bytes) with the currently-
+ * preferred path and *charging_out with whether a "USB" node exists. */
+int ajazz_best_path(char *path_out, size_t len, int *charging_out);
 
 /* Sends a 32 byte report and returns 0 on success. */
 int ajazz_send(ajazz_dev_t *dev, const ajazz_report_t *r);

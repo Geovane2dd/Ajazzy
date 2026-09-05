@@ -87,9 +87,7 @@ typedef struct {
     AdwSpinRow *rgb_brightness;
     AdwActionRow *rgb_speed_row;
     AdwSpinRow *rgb_speed;
-    GtkWidget *rgb_preview;
-    guint rgb_soft_timer_id;  /* 0 when no software effect is running */
-    int rgb_soft_mode;        /* which software effect rgb_soft_timer_id is running */
+    guint rgb_soft_timer_id;  /* 0 when the software colour cycle isn't running */
     double rgb_soft_phase;
     int rgb_soft_fail_count;
 
@@ -149,6 +147,23 @@ static inline int ajazz_send_and_wait_mt(App *app, const ajazz_report_t *r, int 
 {
     g_mutex_lock(&app->hid_lock);
     int rc = ajazz_send_and_wait(&app->dev, r, timeout_ms);
+    g_mutex_unlock(&app->hid_lock);
+    return rc;
+}
+
+/* Non-blocking variant for a periodic effect ticking on the MAIN thread
+ * (a plain g_timeout_add callback, not a GThread) -- a page's
+ * background fetch can hold hid_lock for up to its query's timeout
+ * (up to 1000ms), and a normal ajazz_send_mt() tick landing during that
+ * window would stall the whole UI waiting for the lock, which is
+ * exactly the freeze this exists to prevent. Returns 1 (skipped, lock
+ * was busy -- just try again next tick) rather than blocking; 0/-1 have
+ * ajazz_send()'s normal meaning. */
+static inline int ajazz_send_trylock_mt(App *app, const ajazz_report_t *r)
+{
+    if (!g_mutex_trylock(&app->hid_lock))
+        return 1;
+    int rc = ajazz_send(&app->dev, r);
     g_mutex_unlock(&app->hid_lock);
     return rc;
 }
