@@ -42,18 +42,22 @@
  * panel, since those widgets are used throughout every page.
  */
 static const char *CSS =
-    "@define-color accent_color #f0564a;"
-    "@define-color accent_bg_color #f0564a;"
+    "@define-color accent_color #e8394a;"
+    "@define-color accent_bg_color #e8394a;"
     "@define-color accent_fg_color #ffffff;"
-    "@define-color ajazz_bg_deep #0c0e10;"
-    "@define-color ajazz_panel #15181b;"
+    "@define-color ajazz_bg_deep #0d0d0f;"
+    "@define-color ajazz_panel #111114;"
+    "@define-color ajazz_surface #18181b;"
+    "@define-color ajazz_border #2a2a2e;"
 
     "window.background, .background { background-color: @ajazz_bg_deep; }"
 
-    ".ajazz-dpi-btn { border-radius: 10px; padding: 12px; font-weight: 800; min-width: 76px;"
-    "  box-shadow: 0 1px 3px rgba(0,0,0,0.4); transition: box-shadow 150ms ease; }"
-    ".ajazz-dpi-btn.selected { outline: 2px solid #fff; outline-offset: 2px;"
-    "  box-shadow: 0 0 0 3px alpha(@accent_color, 0.55), 0 0 18px 2px alpha(@accent_color, 0.55); }"
+    "* { border-radius: 6px; }"
+
+    ".ajazz-dpi-btn { border-radius: 6px; padding: 10px; font-weight: 800; min-width: 76px;"
+    "  border: 3px solid transparent; box-shadow: 0 1px 3px rgba(0,0,0,0.4); transition: all 150ms ease; }"
+    ".ajazz-dpi-btn.selected { border: 3px solid @accent_color;"
+    "  box-shadow: 0 0 0 2px alpha(@accent_color, 0.35), 0 0 18px 2px alpha(@accent_color, 0.55); }"
     /* matching the mouse's own confirmed per-DPI-stage indicator LED
      * colours (query 0x14, see docs/reverse-engineering.md): red, green,
      * blue, cyan, yellow, magenta -- not arbitrary decoration, this is
@@ -71,38 +75,64 @@ static const char *CSS =
     ".ajazz-marker.selected { background-color: @accent_bg_color; color: @accent_fg_color;"
     "  border-color: #fff; box-shadow: 0 0 0 3px alpha(@accent_bg_color, 0.4), 0 0 14px alpha(@accent_bg_color, 0.6); }"
 
+    /* ---- sidebar / nav rail ---- */
     ".ajazz-sidebar-panel { background-color: @ajazz_panel;"
-    "  background-image: linear-gradient(180deg, alpha(@accent_color, 0.10), transparent 220px);"
-    "  border-right: 1px solid alpha(#fff, 0.06); }"
-    ".ajazz-sidebar-header { padding: 18px 16px 18px 16px;"
-    "  border-bottom: 1px solid alpha(@accent_color, 0.35); }"
-    ".ajazz-sidebar-title { font-size: 18px; font-weight: 900; letter-spacing: 3px; color: #fff; }"
+    "  border-right: 1px solid @ajazz_border; }"
+    ".ajazz-sidebar-header { padding: 20px 16px 16px 16px; }"
+    ".ajazz-sidebar-title { font-size: 16px; font-weight: 900; letter-spacing: 3px; color: #fff; }"
     ".ajazz-sidebar-subtitle { font-size: 10px; font-weight: 700; letter-spacing: 1px;"
-    "  text-transform: uppercase; opacity: 0.5; }"
-    ".navigation-sidebar row { border-left: 3px solid transparent; margin: 1px 6px; border-radius: 8px; }"
-    ".navigation-sidebar row:selected { background-color: alpha(@accent_color, 0.16);"
+    "  text-transform: uppercase; opacity: 0.45; }"
+    ".navigation-sidebar { background-color: transparent; padding: 4px 0; }"
+    ".navigation-sidebar row { border-left: 3px solid transparent; border-radius: 0; margin: 0; padding: 0; }"
+    ".navigation-sidebar row:hover { background-color: alpha(#fff, 0.04); }"
+    ".navigation-sidebar row:selected { background-color: alpha(@accent_color, 0.14);"
     "  border-left: 3px solid @accent_color; }"
-    ".navigation-sidebar row:selected label { font-weight: 700; }"
+    ".navigation-sidebar row:selected label { font-weight: 700; color: #fff; }"
+    ".ajazz-nav-icon { opacity: 0.65; }"
+    ".navigation-sidebar row:selected .ajazz-nav-icon { opacity: 1; color: @accent_color; }"
 
-    ".ajazz-status-connected { color: #3fe07a; font-weight: 700; }"
+    /* ---- top bar ---- */
+    ".ajazz-topbar-device { font-weight: 800; font-size: 13px; }"
+
+    ".ajazz-status-connected { color: #37d67a; font-weight: 700; }"
     ".ajazz-status-disconnected { color: #ff5c5c; font-weight: 700; }"
     ".ajazz-status-dot { min-width: 8px; min-height: 8px; border-radius: 5px; margin: 0 2px; }"
-    ".ajazz-status-dot.connected { background-color: #3fe07a; box-shadow: 0 0 6px #3fe07a; }"
+    ".ajazz-status-dot.connected { background-color: #37d67a; box-shadow: 0 0 6px #37d67a; }"
     ".ajazz-status-dot.disconnected { background-color: #ff5c5c; }"
 
-    "preferencesgroup > box > label.title { letter-spacing: 0.5px; font-weight: 800;"
-    "  text-transform: uppercase; font-size: 12px; opacity: 0.7; }"
+    /* ---- card-style groups (used throughout every page in place of the
+     * default flat preferences-list look) ---- */
+    "preferencesgroup > box { background-color: @ajazz_surface;"
+    "  border: 1px solid @ajazz_border; border-radius: 8px; padding: 4px; }"
+    "preferencesgroup > box > box > listbox,"
+    "preferencesgroup > box > box > listbox row {"
+    "  background-color: transparent; }"
+    "preferencesgroup > box > box > label.title { letter-spacing: 0.5px; font-weight: 800;"
+    "  text-transform: uppercase; font-size: 11px; opacity: 0.65; margin: 6px 6px 2px 6px; }"
+    "preferencesgroup row { border-radius: 6px; }"
     ".ajazz-cta { font-weight: 800; padding-left: 24px; padding-right: 24px; }"
     "button.suggested-action.pill { box-shadow: 0 2px 14px alpha(@accent_color, 0.4); }"
+    "button, entry, .pill { border-radius: 6px; }"
+    ".pill { border-radius: 999px; }"
 
     /* Home page hero */
-    ".ajazz-hero { border-radius: 20px; padding: 22px 26px;"
-    "  background-image: linear-gradient(135deg, alpha(@accent_color, 0.22), alpha(@accent_color, 0.03) 70%);"
+    ".ajazz-hero { border-radius: 8px; padding: 22px 26px;"
+    "  background-image: linear-gradient(135deg, alpha(@accent_color, 0.20), alpha(@accent_color, 0.02) 70%);"
     "  border: 1px solid alpha(@accent_color, 0.3); }"
-    ".ajazz-hero-name { font-size: 24px; font-weight: 900; color: #fff; }"
+    ".ajazz-hero-name { font-size: 22px; font-weight: 900; color: #fff; }"
     ".ajazz-hero-sub { font-size: 12px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; opacity: 0.55; }"
     ".ajazz-stat-label { font-size: 10px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; opacity: 0.5; }"
     ".ajazz-stat-value { font-size: 15px; font-weight: 800; }"
+
+    /* card grid used on the Home page */
+    ".ajazz-card { background-color: @ajazz_surface; border: 1px solid @ajazz_border;"
+    "  border-radius: 8px; padding: 14px; }"
+    ".ajazz-card-title { font-size: 11px; font-weight: 800; letter-spacing: 0.5px;"
+    "  text-transform: uppercase; opacity: 0.65; margin-bottom: 4px; }"
+
+    /* Home dashboard stat cards -- the big red numbers */
+    ".ajazz-home-stat-value { font-size: 34px; font-weight: 900; color: @accent_color; }"
+    ".ajazz-home-stat-value-sm { font-size: 16px; font-weight: 900; color: @accent_color; }"
 
     /* battery bars */
     ".ajazz-batt-seg { min-width: 9px; min-height: 20px; border-radius: 2px;"
@@ -111,7 +141,7 @@ static const char *CSS =
 
     /* tested/untested badges */
     ".ajazz-badge { border-radius: 999px; padding: 3px 11px; font-size: 11px; font-weight: 800; letter-spacing: 0.3px; }"
-    ".ajazz-badge-green { background-color: alpha(#3fe07a, 0.16); color: #3fe07a; border: 1px solid alpha(#3fe07a, 0.45); }"
+    ".ajazz-badge-green { background-color: alpha(#37d67a, 0.16); color: #37d67a; border: 1px solid alpha(#37d67a, 0.45); }"
     ".ajazz-badge-yellow { background-color: alpha(#ffc93f, 0.16); color: #ffc93f; border: 1px solid alpha(#ffc93f, 0.45); }";
 
 GtkWidget *make_logo_widget(int size)
@@ -215,6 +245,9 @@ gboolean ensure_connected(App *app)
         app->connected = FALSE;
         set_status_widgets(app->status_dot, app->status_lbl, FALSE);
         set_status_widgets(app->hero_status_dot, app->hero_status_lbl, FALSE);
+        set_status_widgets(app->topbar_status_dot, app->topbar_status_lbl, FALSE);
+        if (app->topbar_device_lbl)
+            gtk_label_set_text(app->topbar_device_lbl, _("No device"));
     }
     g_mutex_lock(&app->hid_lock);
     int rc = ajazz_open(&app->dev);
@@ -222,6 +255,9 @@ gboolean ensure_connected(App *app)
     if (rc == 0) {
         app->connected = TRUE;
         set_status_widgets(app->status_dot, app->status_lbl, TRUE);
+        set_status_widgets(app->topbar_status_dot, app->topbar_status_lbl, TRUE);
+        if (app->topbar_device_lbl)
+            gtk_label_set_text(app->topbar_device_lbl, app->dev.name);
         return TRUE;
     }
     toast(app, _("No AJAZZ mouse found. Check the connection and permissions."));
@@ -252,6 +288,28 @@ static void refresh_page(App *app, const char *page_name)
         refresh_macro_status(app);
     else if (strcmp(page_name, "lighting") == 0)
         refresh_lighting(app);
+    else if (strcmp(page_name, "profiles") == 0)
+        refresh_profiles(app);
+}
+
+/* Selects the sidebar row for `page_name` and switches to it, same as a
+ * manual click -- see the declaration in app.h for callers (Home's
+ * per-card "go to this page" buttons). */
+void switch_to_page(App *app, const char *page_name)
+{
+    if (!app->sidebar_list)
+        return;
+    guint n = 0;
+    for (GtkListBoxRow *row = gtk_list_box_get_row_at_index(app->sidebar_list, 0); row;
+         row = gtk_list_box_get_row_at_index(app->sidebar_list, ++n)) {
+        const char *p = g_object_get_data(G_OBJECT(row), "page");
+        if (p && strcmp(p, page_name) == 0) {
+            gtk_list_box_select_row(app->sidebar_list, row);
+            adw_view_stack_set_visible_child_name(app->stack, page_name);
+            refresh_page(app, page_name);
+            return;
+        }
+    }
 }
 
 static void on_sidebar_row_selected(GtkListBox *box, GtkListBoxRow *row, gpointer user_data)
@@ -294,13 +352,15 @@ static GtkWidget *build_sidebar(App *app, const nav_item_t *items, size_t n_item
 
     for (size_t i = 0; i < n_items; i++) {
         GtkWidget *row = gtk_list_box_row_new();
-        GtkWidget *rowbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
-        gtk_widget_set_margin_top(rowbox, 8);
-        gtk_widget_set_margin_bottom(rowbox, 8);
-        gtk_widget_set_margin_start(rowbox, 12);
-        gtk_widget_set_margin_end(rowbox, 12);
+        GtkWidget *rowbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+        gtk_widget_set_margin_top(rowbox, 11);
+        gtk_widget_set_margin_bottom(rowbox, 11);
+        gtk_widget_set_margin_start(rowbox, 13);
+        gtk_widget_set_margin_end(rowbox, 13);
         GtkWidget *icon = gtk_image_new_from_icon_name(items[i].icon);
+        gtk_widget_add_css_class(icon, "ajazz-nav-icon");
         GtkWidget *lbl = gtk_label_new(gettext(items[i].label));
+        gtk_widget_set_halign(lbl, GTK_ALIGN_START);
         gtk_box_append(GTK_BOX(rowbox), icon);
         gtk_box_append(GTK_BOX(rowbox), lbl);
         gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), rowbox);
@@ -386,7 +446,7 @@ static void on_activate(GtkApplication *gtk_app, gpointer user_data)
      * to the tray (see on_window_close_request()) would otherwise quit it */
     g_application_hold(G_APPLICATION(gtk_app));
 
-    adw_style_manager_set_color_scheme(adw_style_manager_get_default(), ADW_COLOR_SCHEME_PREFER_DARK);
+    settings_load_and_apply(app);
 
     /* Lets gtk_image_new_from_icon_name(AJAZZ_APP_ICON) and the window icon
      * resolve even when running straight from the build directory, not just
@@ -408,12 +468,23 @@ static void on_activate(GtkApplication *gtk_app, gpointer user_data)
      * row synchronously fires a refresh that can call toast() */
     app->toast_overlay = ADW_TOAST_OVERLAY(adw_toast_overlay_new());
 
+    /* Every page's content gets capped to a comfortable reading/working
+     * width and centred -- without this, cards and grids stretch edge
+     * to edge on a wide/maximised window, which looks broken rather
+     * than like a real product. */
+    GtkWidget *(*builders[])(App *) = {
+        build_home_page, build_buttons_page, build_mouse_config_page,
+        build_lighting_page, build_macro_page, build_profiles_page, build_settings_page,
+    };
+    static const char *page_names[] = { "home", "buttons", "config", "lighting", "macro", "profiles", "settings" };
+
     app->stack = ADW_VIEW_STACK(adw_view_stack_new());
-    adw_view_stack_add_named(app->stack, build_home_page(app), "home");
-    adw_view_stack_add_named(app->stack, build_buttons_page(app), "buttons");
-    adw_view_stack_add_named(app->stack, build_mouse_config_page(app), "config");
-    adw_view_stack_add_named(app->stack, build_lighting_page(app), "lighting");
-    adw_view_stack_add_named(app->stack, build_macro_page(app), "macro");
+    for (guint i = 0; i < G_N_ELEMENTS(builders); i++) {
+        AdwClamp *clamp = ADW_CLAMP(adw_clamp_new());
+        adw_clamp_set_maximum_size(clamp, 1100);
+        adw_clamp_set_child(clamp, builders[i](app));
+        adw_view_stack_add_named(app->stack, GTK_WIDGET(clamp), page_names[i]);
+    }
 
     static const nav_item_t items[] = {
         {N_("Home"), "go-home-symbolic", "home"},
@@ -421,6 +492,8 @@ static void on_activate(GtkApplication *gtk_app, gpointer user_data)
         {N_("Mouse settings"), "preferences-system-symbolic", "config"},
         {N_("Lighting"), "weather-clear-symbolic", "lighting"},
         {N_("Macro"), "input-keyboard-symbolic", "macro"},
+        {N_("Profiles"), "document-save-symbolic", "profiles"},
+        {N_("Settings"), "emblem-system-symbolic", "settings"},
     };
     GtkWidget *sidebar_content = build_sidebar(app, items, G_N_ELEMENTS(items));
 
@@ -430,7 +503,29 @@ static void on_activate(GtkApplication *gtk_app, gpointer user_data)
         adw_navigation_page_new(GTK_WIDGET(sidebar_toolbar), _("Ajazzy")));
 
     AdwHeaderBar *content_header = ADW_HEADER_BAR(adw_header_bar_new());
-    adw_header_bar_set_show_title(content_header, TRUE);
+    adw_header_bar_set_show_title(content_header, FALSE);
+
+    GtkWidget *topbar_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_set_halign(topbar_box, GTK_ALIGN_START);
+    app->topbar_device_lbl = GTK_LABEL(gtk_label_new(_("No device")));
+    gtk_widget_add_css_class(GTK_WIDGET(app->topbar_device_lbl), "ajazz-topbar-device");
+    gtk_box_append(GTK_BOX(topbar_box), GTK_WIDGET(app->topbar_device_lbl));
+
+    GtkWidget *topbar_sep = gtk_label_new("\xE2\x80\xA2"); /* bullet */
+    gtk_widget_add_css_class(topbar_sep, "dim-label");
+    gtk_box_append(GTK_BOX(topbar_box), topbar_sep);
+
+    app->topbar_status_dot = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_add_css_class(app->topbar_status_dot, "ajazz-status-dot");
+    gtk_widget_add_css_class(app->topbar_status_dot, "disconnected");
+    gtk_widget_set_valign(app->topbar_status_dot, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(topbar_box), app->topbar_status_dot);
+    app->topbar_status_lbl = GTK_LABEL(gtk_label_new(_("Disconnected")));
+    gtk_widget_add_css_class(GTK_WIDGET(app->topbar_status_lbl), "ajazz-status-disconnected");
+    gtk_widget_add_css_class(GTK_WIDGET(app->topbar_status_lbl), "caption");
+    gtk_box_append(GTK_BOX(topbar_box), GTK_WIDGET(app->topbar_status_lbl));
+
+    adw_header_bar_set_title_widget(content_header, topbar_box);
 
     AdwToolbarView *content_toolbar = ADW_TOOLBAR_VIEW(adw_toolbar_view_new());
     adw_toolbar_view_add_top_bar(content_toolbar, GTK_WIDGET(content_header));
@@ -467,6 +562,13 @@ static void on_activate(GtkApplication *gtk_app, gpointer user_data)
     app->tray = ajazz_tray_new("battery-missing-symbolic", _("Ajazzy"), &tray_cb);
 
     refresh_home(app);
+    /* The dashboard's DPI/rate/lighting cards read app->dpi_cache,
+     * app->rate_hz and app->rgb_effect's selection -- state that's
+     * normally only populated once the user visits the Mouse/Lighting
+     * pages. Warm both up front so the dashboard shows real values
+     * immediately on launch instead of "--"/stale zeros. */
+    refresh_config(app);
+    refresh_lighting(app);
     g_timeout_add_seconds(2, periodic_refresh_cb, app);
 }
 
@@ -480,6 +582,8 @@ int main(int argc, char **argv)
     App app = {0};
     app.dev.fd = -1;
     app.dpi_selected = 0;
+    app.rate_hz = -1;
+    app.battery_percent = -1;
     init_key_functions();
     init_macro_actions();
 

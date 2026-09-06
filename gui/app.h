@@ -28,6 +28,9 @@ typedef struct {
     GtkListBox *sidebar_list;
     GtkLabel *status_lbl;
     GtkWidget *status_dot;
+    GtkLabel *topbar_device_lbl;
+    GtkWidget *topbar_status_dot;
+    GtkLabel *topbar_status_lbl;
 
     ajazz_dev_t dev;
     gboolean connected;
@@ -67,6 +70,22 @@ typedef struct {
     GtkLabel *hero_status_lbl;
     GtkWidget *batt_seg[4];
     GtkWidget *cap_badge[7];
+    int battery_percent; /* -1 = unknown, else 0-100; drives the Home battery ring */
+
+    /* Home page's compact "Button Mapping" readout -- kept in sync by
+     * page_buttons.c's buttons_fetch_apply() so Home shows the real
+     * current mapping without duplicating the fetch. */
+    GtkLabel *home_key_lbl[AJAZZ_KEY_SLOTS];
+
+    /* Home dashboard cards -- top-row stat widgets, refreshed straight
+     * from the same shared state the Mouse/Lighting pages already keep
+     * (dpi_cache/dpi_selected, rate_hz, rgb_effect's selection), not a
+     * separate fetch. See refresh_home_cards() in page_home.c. */
+    GtkLabel *home_dpi_val;
+    GtkLabel *home_rate_val;
+    GtkLabel *home_light_val;
+    GtkWidget *home_batt_ring; /* GtkDrawingArea, draws battery_percent as a ring */
+    GtkLabel *home_batt_pct_lbl;
 
     /* dpi / config */
     GtkToggleButton *dpi_btn[AJAZZ_DPI_STAGES];
@@ -74,9 +93,11 @@ typedef struct {
     AdwActionRow *dpi_value_row;
     int dpi_selected;
     uint16_t dpi_cache[AJAZZ_DPI_STAGES];
-    GtkColorDialogButton *dpi_color_btn[AJAZZ_DPI_STAGES];
+    GtkColorDialogButton *dpi_color_btn; /* one button, follows dpi_selected */
     uint8_t dpi_color_cache[AJAZZ_DPI_STAGES][3];
+    GtkDrawingArea *dpi_chart; /* "DPI Stages Preview" line chart, redrawn on any dpi_cache change */
     GtkToggleButton *rate_btn[4];
+    int rate_hz; /* -1 = unknown; last applied/fetched report rate, mirrored on the Home card */
     GtkCheckButton *liftoff1;
     GtkCheckButton *liftoff2;
     AdwComboRow *sleep_combo;
@@ -87,9 +108,31 @@ typedef struct {
     AdwSpinRow *rgb_brightness;
     AdwActionRow *rgb_speed_row;
     AdwSpinRow *rgb_speed;
-    guint rgb_soft_timer_id;  /* 0 when the software colour cycle isn't running */
+    AdwActionRow *rgb_soft_color_row; /* visible for Breathing and for picking the next Custom swatch */
+    GtkColorDialogButton *rgb_soft_color_btn;
+    uint8_t rgb_soft_color[3]; /* Breathing's base colour / next colour to add to a Custom sequence */
+    guint rgb_soft_timer_id;  /* 0 when no software effect loop is running */
+    int rgb_soft_effect_kind; /* which RGB_SOFT_* is running, valid while rgb_soft_timer_id != 0 */
     double rgb_soft_phase;
     int rgb_soft_fail_count;
+
+    /* Custom (software) effect: a user-built sequence of colours the
+     * tick loop plays through, either cross-fading between them or
+     * hard-cutting -- this is the "make your own effect" control the
+     * fixed Off/Constant/hardware-cycle/Breathing/Rainbow list can't
+     * cover on its own. */
+    uint8_t rgb_custom_colors[8][3];
+    int rgb_custom_count;
+    int rgb_custom_transition; /* 0 = fade between colours, 1 = hard cut */
+    GtkWidget *rgb_custom_swatches_box;
+    AdwActionRow *rgb_custom_row; /* wraps rgb_custom_swatches_box, visible only for Custom */
+    AdwComboRow *rgb_custom_transition_row;
+
+    /* app settings (gui/page_settings.c) */
+    int settings_theme;             /* 0 = system, 1 = light, 2 = dark */
+    gboolean settings_autostart;
+    gboolean settings_low_battery_warning;
+    gboolean settings_low_battery_was_ok; /* tracks the >=20% -> <20% crossing */
 
     /* buttons */
     AdwComboRow *key_dropdown[AJAZZ_KEY_SLOTS];
@@ -116,6 +159,11 @@ void toast(App *app, const char *msg);
 void set_status_widgets(GtkWidget *dot, GtkLabel *lbl, gboolean connected);
 gboolean ensure_connected(App *app);
 void free_closure_data(gpointer data, GClosure *closure);
+/* Selects the sidebar row for `page_name` (see build_sidebar()'s nav_item_t
+ * list in main.c), which switches the visible AdwViewStack child and
+ * re-reads that page from the mouse -- the same path a manual sidebar
+ * click takes. Used by Home's per-card "go to this page" buttons. */
+void switch_to_page(App *app, const char *page_name);
 
 /* Thread-safe wrappers around protocol/transport.h's ajazz_query() /
  * ajazz_send() / ajazz_send_and_wait() -- every call site in the gui/
@@ -184,19 +232,66 @@ void refresh_home(App *app);
 /* gui/page_mouse.c */
 GtkWidget *build_mouse_config_page(App *app);
 void refresh_config(App *app);
+/* Selects DPI stage `stage` (0-based) in the already-built Mouse settings
+ * page -- used by Home's DPI card chips to jump-select a stage before
+ * switching to that page. Safe to call even before the page has ever been
+ * shown, since build_mouse_config_page() runs once at startup. */
+void mouse_page_select_stage(App *app, int stage);
+/* Applies a full DPI table + colour table from a saved profile: updates
+ * app->dpi_cache/dpi_color_cache, sends both SET commands, and refreshes
+ * the stage grid/chart/swatch. Returns TRUE if both sends succeeded. */
+gboolean mouse_page_apply_profile_dpi(App *app, const uint16_t dpi[AJAZZ_DPI_STAGES],
+    const uint8_t colors[AJAZZ_DPI_STAGES][3], int selected_stage);
+/* Applies a saved report rate (125/250/500/1000 Hz) -- maps to the
+ * nearest toggle, sends it, and updates app->rate_hz. Returns TRUE on a
+ * successful send. */
+gboolean mouse_page_apply_profile_rate(App *app, int hz);
 
 /* gui/page_lighting.c */
 GtkWidget *build_lighting_page(App *app);
 void refresh_lighting(App *app);
+/* Applies a saved lighting configuration: sets the effect/brightness/
+ * speed/breathing-colour widgets to the given values and immediately
+ * applies them, same as picking them by hand and clicking "Apply to
+ * mouse". `color` is only used for RGB_SOFT_BREATHING (see the
+ * RGB_SOFT_* enum in page_lighting.c); pass NULL if not applicable. */
+void lighting_apply_profile(App *app, int effect, int brightness, int speed, const uint8_t color[3]);
 
 /* gui/page_buttons.c */
 GtkWidget *build_buttons_page(App *app);
 void refresh_buttons(App *app);
 void init_key_functions(void);
+/* Applies a saved button table verbatim -- `raw` is AJAZZ_KEY_SLOTS
+ * entries of the same 3-byte-per-slot wire format AJAZZ_QUERY_KEY_TABLE
+ * returns (marker, param1, param2), exactly what a profile save reads
+ * back with a fresh query. Re-reads the mouse afterward (refresh_buttons())
+ * so the dropdowns/Home readout reflect what was actually written, rather
+ * than assuming the raw bytes round-trip losslessly through the UI. */
+gboolean buttons_apply_profile_table(App *app, const uint8_t raw[AJAZZ_KEY_SLOTS][3]);
 
 /* gui/page_macro.c */
 GtkWidget *build_macro_page(App *app);
 void refresh_macro_status(App *app);
 void init_macro_actions(void);
+
+/* gui/page_profiles.c -- local (PC-side) configuration snapshots, saved
+ * as JSON under ~/.config/ajazzy/profiles/. Not a mouse feature: this
+ * protocol has no on-device profile storage, see the page's own
+ * subtitle and build_profiles_page()'s comment. */
+GtkWidget *build_profiles_page(App *app);
+void refresh_profiles(App *app);
+
+/* gui/page_settings.c -- app-level preferences, all local to this PC
+ * (~/.config/ajazzy/settings.json): theme, launch-on-login, low-battery
+ * warning, and wiping this app's own local data. None of this is a
+ * mouse/firmware feature. */
+GtkWidget *build_settings_page(App *app);
+/* Loads settings.json (if present) and applies theme/autostart state at
+ * startup, before the window is shown -- called once from main(). */
+void settings_load_and_apply(App *app);
+/* Called from periodic_refresh_cb() every tick with the latest battery
+ * reading; fires a one-shot toast on the crossing into <20% while
+ * unplugged, if the user has that warning enabled. */
+void settings_check_low_battery(App *app, int percent, gboolean charging);
 
 #endif

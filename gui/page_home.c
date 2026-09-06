@@ -11,6 +11,8 @@
 #include "../devices/device.h"
 
 static void set_confirm_badge(GtkWidget *badge, gboolean confirmed);
+static void on_home_goto_clicked(GtkButton *btn, gpointer user_data);
+static void on_factory_reset_clicked(GtkButton *btn, gpointer user_data);
 
 /* Tier boundaries must match ajazz_battery_label() in protocol/hid.c --
  * kept as a separate small function here (rather than parsing the label
@@ -107,13 +109,29 @@ static gboolean home_fetch_apply(gpointer user_data)
     if (res->ok) {
         uint8_t raw = res->raw;
         int tier = battery_tier(raw);
-        const char *label = ajazz_battery_label(raw);
+        /* Translatable in the GUI's own strings, unlike
+         * ajazz_battery_label() in protocol/hid.c -- that one exists
+         * for the CLI, which has no i18n layer of its own, and stays
+         * English-only by design; the GUI builds its own label instead
+         * of reusing it so this text actually goes through po/pt_BR.po.
+         * Just a short qualifier, not "(N/4 bars)" -- the real 0-100%
+         * number is already shown right next to it, so restating it as
+         * a quarter-count would just be noise. */
+        static const char *tier_labels[] = {
+            N_("Low"), N_("Medium"), N_("Good"), N_("Full"),
+        };
+        const char *label = gettext(tier_labels[tier - 1]);
 
         char pct_line[16];
         snprintf(pct_line, sizeof(pct_line), "%d%%", raw);
         gtk_label_set_text(app->lbl_battery, pct_line);
-        gtk_widget_set_tooltip_text(GTK_WIDGET(app->lbl_battery), label);
+        char tooltip[32];
+        snprintf(tooltip, sizeof(tooltip), "%d%% -- %s", raw, label);
+        gtk_widget_set_tooltip_text(GTK_WIDGET(app->lbl_battery), tooltip);
         set_battery_bars(app, tier);
+        app->battery_percent = raw;
+        if (app->home_batt_ring) gtk_widget_queue_draw(app->home_batt_ring);
+        if (app->home_batt_pct_lbl) gtk_label_set_text(app->home_batt_pct_lbl, pct_line);
 
         /* dev.charging is independent of which interface we actually
          * read the battery from (ajazz_open() prefers the 2.4G one when
@@ -122,6 +140,7 @@ static gboolean home_fetch_apply(gpointer user_data)
          * wired-only model (no battery at all) never shows this. */
         gboolean charging = (app->dev.confirmed & AJAZZ_CAP_BATTERY) && app->dev.charging;
         gtk_widget_set_visible(app->lbl_charging, charging);
+        settings_check_low_battery(app, raw, charging);
 
         char batt_line[128];
         snprintf(batt_line, sizeof(batt_line), charging ? _("Battery: %d%% -- %s (charging)") : _("Battery: %d%% -- %s"), raw, label);
@@ -131,6 +150,9 @@ static gboolean home_fetch_apply(gpointer user_data)
         gtk_label_set_text(app->lbl_battery, "?");
         gtk_widget_set_visible(app->lbl_charging, FALSE);
         set_battery_bars(app, -1);
+        app->battery_percent = -1;
+        if (app->home_batt_ring) gtk_widget_queue_draw(app->home_batt_ring);
+        if (app->home_batt_pct_lbl) gtk_label_set_text(app->home_batt_pct_lbl, "?");
         ajazz_tray_set_status(app->tray, device_line, _("Battery: unknown"));
         ajazz_tray_set_icon(app->tray, battery_percent_icon(-1, FALSE));
     }
@@ -157,6 +179,43 @@ static gpointer home_fetch_thread(gpointer user_data)
     return NULL;
 }
 
+/* Names must match RGB_OFF/RGB_RAINBOW/RGB_CONSTANT/RGB_SOFT_COLORCYCLE's
+ * order in page_lighting.c's effect combo -- duplicated here (rather than
+ * exported) since it's just for this one label's text, not shared state. */
+static const char *home_light_effect_names[] = {
+    N_("Off"), N_("Rainbow"), N_("Constant colour"), N_("Colour cycle"),
+};
+
+/* Refreshes the Home dashboard's top-row stat cards (DPI/Rate/Lighting)
+ * from the shared state the Mouse/Lighting pages already keep -- no
+ * separate fetch, just reflecting whatever's already cached. Safe to call
+ * whether or not the mouse is connected (falls back to "--"). */
+static void refresh_home_cards(App *app)
+{
+    if (app->home_dpi_val) {
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%u", app->dpi_cache[app->dpi_selected]);
+        gtk_label_set_text(app->home_dpi_val, app->connected ? buf : "--");
+    }
+    if (app->home_rate_val) {
+        char buf[16];
+        if (app->connected && app->rate_hz > 0)
+            snprintf(buf, sizeof(buf), "%d Hz", app->rate_hz);
+        else
+            snprintf(buf, sizeof(buf), "--");
+        gtk_label_set_text(app->home_rate_val, buf);
+    }
+    if (app->home_light_val) {
+        if (app->connected && app->rgb_effect) {
+            guint sel = adw_combo_row_get_selected(app->rgb_effect);
+            gtk_label_set_text(app->home_light_val,
+                sel < G_N_ELEMENTS(home_light_effect_names) ? gettext(home_light_effect_names[sel]) : "--");
+        } else {
+            gtk_label_set_text(app->home_light_val, "--");
+        }
+    }
+}
+
 /* Called every time the Home page becomes visible (and every 5s from
  * the periodic tray tick) -- the parts that only need app->dev's
  * already-cached fields (populated by ensure_connected()/ajazz_open(),
@@ -175,14 +234,24 @@ void refresh_home(App *app)
         gtk_label_set_text(app->lbl_confirmed, "");
         set_status_widgets(app->status_dot, app->status_lbl, FALSE);
         set_status_widgets(app->hero_status_dot, app->hero_status_lbl, FALSE);
+        set_status_widgets(app->topbar_status_dot, app->topbar_status_lbl, FALSE);
+        if (app->topbar_device_lbl)
+            gtk_label_set_text(app->topbar_device_lbl, _("No device"));
         set_battery_bars(app, -1);
+        app->battery_percent = -1;
+        if (app->home_batt_ring) gtk_widget_queue_draw(app->home_batt_ring);
+        if (app->home_batt_pct_lbl) gtk_label_set_text(app->home_batt_pct_lbl, "?");
         ajazz_tray_set_status(app->tray, _("No AJAZZ mouse detected"), "");
         ajazz_tray_set_icon(app->tray, battery_percent_icon(-1, FALSE));
+        refresh_home_cards(app);
         return;
     }
 
     set_status_widgets(app->status_dot, app->status_lbl, TRUE);
     set_status_widgets(app->hero_status_dot, app->hero_status_lbl, TRUE);
+    set_status_widgets(app->topbar_status_dot, app->topbar_status_lbl, TRUE);
+    if (app->topbar_device_lbl)
+        gtk_label_set_text(app->topbar_device_lbl, app->dev.name);
     for (size_t i = 0; i < N_CAP_ROWS; i++)
         set_confirm_badge(app->cap_badge[i], app->dev.confirmed & CAP_ROWS[i].cap);
 
@@ -201,6 +270,8 @@ void refresh_home(App *app)
     } else {
         gtk_label_set_text(app->lbl_confirmed, _("Protocol confirmed against real hardware for this model."));
     }
+
+    refresh_home_cards(app);
 
     if (app->home_fetch_pending)
         return;
@@ -358,42 +429,393 @@ static void on_factory_reset_clicked(GtkButton *btn, gpointer user_data)
     adw_dialog_present(ADW_DIALOG(dialog), GTK_WIDGET(app->win));
 }
 
+/* Small helper: an .ajazz-card box with an uppercase title label, used to
+ * lay out the Home page as a grid of cards rather than a single vertical
+ * list of AdwPreferencesGroups. */
+static GtkWidget *make_card(const char *title, GtkWidget *content)
+{
+    GtkWidget *card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+    gtk_widget_add_css_class(card, "ajazz-card");
+    if (title) {
+        GtkWidget *lbl = gtk_label_new(title);
+        gtk_widget_add_css_class(lbl, "ajazz-card-title");
+        gtk_widget_set_halign(lbl, GTK_ALIGN_START);
+        gtk_box_append(GTK_BOX(card), lbl);
+    }
+    gtk_box_append(GTK_BOX(card), content);
+    return card;
+}
+
+/* Circular progress ring for the Battery stat card -- a plain arc, not a
+ * fancy gauge, since this is a dashboard glance not a detail page. Drawn
+ * in the card's own accent-adjacent grey when unknown (-1). */
+static void draw_battery_ring(GtkDrawingArea *area, cairo_t *cr, int width, int height, gpointer data)
+{
+    App *app = data;
+    (void)area;
+    double cx = width / 2.0, cy = height / 2.0;
+    double r = (MIN(width, height) - 8) / 2.0;
+    double start = -G_PI_2;
+
+    cairo_set_line_width(cr, 6);
+    cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
+
+    cairo_arc(cr, cx, cy, r, 0, 2 * G_PI);
+    cairo_set_source_rgba(cr, 1, 1, 1, 0.10);
+    cairo_stroke(cr);
+
+    int pct = app->battery_percent;
+    if (pct >= 0) {
+        double frac = pct / 100.0;
+        cairo_arc(cr, cx, cy, r, start, start + frac * 2 * G_PI);
+        cairo_set_source_rgb(cr, 0.910, 0.224, 0.290); /* accent #e8394a */
+        cairo_stroke(cr);
+    }
+}
+
+/* Battery card: same card shell as build_stat_card(), but the value slot
+ * is a circular ring (see draw_battery_ring()) with the percentage
+ * overlaid in its centre, instead of a plain number. */
+static GtkWidget *build_battery_stat_card(App *app, const char *goto_label, const char *goto_page)
+{
+    GtkWidget *card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+    gtk_widget_add_css_class(card, "ajazz-card");
+    gtk_widget_set_vexpand(card, TRUE);
+
+    GtkWidget *title_lbl = gtk_label_new(_("Battery"));
+    gtk_widget_add_css_class(title_lbl, "ajazz-card-title");
+    gtk_widget_set_halign(title_lbl, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(card), title_lbl);
+
+    GtkWidget *overlay = gtk_overlay_new();
+    gtk_widget_set_halign(overlay, GTK_ALIGN_CENTER);
+    gtk_widget_set_margin_top(overlay, 6);
+    GtkWidget *ring = gtk_drawing_area_new();
+    gtk_widget_set_size_request(ring, 72, 72);
+    gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(ring), draw_battery_ring, app, NULL);
+    app->home_batt_ring = ring;
+    gtk_overlay_set_child(GTK_OVERLAY(overlay), ring);
+    GtkWidget *pct_lbl = gtk_label_new("--");
+    gtk_widget_add_css_class(pct_lbl, "ajazz-home-stat-value-sm");
+    gtk_widget_set_halign(pct_lbl, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(pct_lbl, GTK_ALIGN_CENTER);
+    gtk_overlay_add_overlay(GTK_OVERLAY(overlay), pct_lbl);
+    app->home_batt_pct_lbl = GTK_LABEL(pct_lbl);
+    gtk_box_append(GTK_BOX(card), overlay);
+
+    GtkWidget *sub_lbl = gtk_label_new(_("Battery"));
+    gtk_widget_add_css_class(sub_lbl, "dim-label");
+    gtk_widget_add_css_class(sub_lbl, "caption");
+    gtk_widget_set_halign(sub_lbl, GTK_ALIGN_CENTER);
+    gtk_widget_set_margin_top(sub_lbl, 4);
+    gtk_box_append(GTK_BOX(card), sub_lbl);
+
+    GtkWidget *sep = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
+    gtk_widget_set_margin_top(sep, 8);
+    gtk_widget_set_margin_bottom(sep, 4);
+    gtk_box_append(GTK_BOX(card), sep);
+
+    GtkWidget *goto_btn = gtk_button_new_with_label(goto_label);
+    gtk_widget_add_css_class(goto_btn, "flat");
+    g_object_set_data(G_OBJECT(goto_btn), "target-page", (gpointer)goto_page);
+    g_signal_connect(goto_btn, "clicked", G_CALLBACK(on_home_goto_clicked), app);
+    gtk_box_append(GTK_BOX(card), goto_btn);
+    return card;
+}
+
+static void on_home_goto_clicked(GtkButton *btn, gpointer user_data)
+{
+    App *app = user_data;
+    const char *page = g_object_get_data(G_OBJECT(btn), "target-page");
+    if (page) switch_to_page(app, page);
+}
+
+/* Top-row stat card: title, a big value (red), a subtitle, an optional
+ * row of quick chips, and a full-width button to the detail page --
+ * matches every card in the reference mockup's top row (DPI/Rate/
+ * Battery/Lighting) except Battery, which swaps the plain value label
+ * for a drawing-area ring (see build_battery_stat_card()). */
+static GtkWidget *build_stat_card(const char *title, GtkLabel **out_value,
+    const char *subtitle, GtkWidget *chips_row, const char *goto_label, const char *goto_page, App *app)
+{
+    GtkWidget *card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+    gtk_widget_add_css_class(card, "ajazz-card");
+    gtk_widget_set_vexpand(card, TRUE);
+
+    GtkWidget *title_lbl = gtk_label_new(title);
+    gtk_widget_add_css_class(title_lbl, "ajazz-card-title");
+    gtk_widget_set_halign(title_lbl, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(card), title_lbl);
+
+    GtkWidget *value_lbl = gtk_label_new("--");
+    gtk_widget_add_css_class(value_lbl, "ajazz-home-stat-value");
+    gtk_widget_set_halign(value_lbl, GTK_ALIGN_CENTER);
+    gtk_widget_set_hexpand(value_lbl, TRUE);
+    gtk_widget_set_margin_top(value_lbl, 6);
+    gtk_widget_set_margin_bottom(value_lbl, 2);
+    gtk_box_append(GTK_BOX(card), value_lbl);
+    *out_value = GTK_LABEL(value_lbl);
+
+    GtkWidget *sub_lbl = gtk_label_new(subtitle);
+    gtk_widget_add_css_class(sub_lbl, "dim-label");
+    gtk_widget_add_css_class(sub_lbl, "caption");
+    gtk_widget_set_halign(sub_lbl, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(card), sub_lbl);
+
+    GtkWidget *sep = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
+    gtk_widget_set_margin_top(sep, 8);
+    gtk_widget_set_margin_bottom(sep, 4);
+    gtk_box_append(GTK_BOX(card), sep);
+
+    if (chips_row)
+        gtk_box_append(GTK_BOX(card), chips_row);
+
+    GtkWidget *goto_btn = gtk_button_new_with_label(goto_label);
+    gtk_widget_add_css_class(goto_btn, "flat");
+    gtk_widget_set_margin_top(goto_btn, chips_row ? 4 : 0);
+    g_object_set_data(G_OBJECT(goto_btn), "target-page", (gpointer)goto_page);
+    g_signal_connect(goto_btn, "clicked", G_CALLBACK(on_home_goto_clicked), app);
+    gtk_box_append(GTK_BOX(card), goto_btn);
+    return card;
+}
+
+static void on_home_dpi_chip_clicked(GtkButton *btn, gpointer user_data)
+{
+    (void)btn;
+    App *app = ((gpointer *)user_data)[0];
+    int stage = GPOINTER_TO_INT(((gpointer *)user_data)[1]);
+    mouse_page_select_stage(app, stage);
+    refresh_home_cards(app);
+}
+
+static void on_home_refresh_action(GtkButton *btn, gpointer user_data)
+{
+    (void)btn;
+    refresh_home((App *)user_data);
+}
+
+static void on_home_device_info_clicked(GtkButton *btn, gpointer user_data)
+{
+    (void)btn;
+    App *app = user_data;
+    if (!ensure_connected(app)) { toast(app, _("Connect the mouse first.")); return; }
+    char body[512];
+    snprintf(body, sizeof(body), "%s\n%04X:%04X\n%s",
+        app->dev.name, app->dev.vid, app->dev.pid, app->dev.dev_id[0] ? app->dev.dev_id : "?");
+    AdwAlertDialog *dialog = ADW_ALERT_DIALOG(adw_alert_dialog_new(_("Device information"), body));
+    adw_alert_dialog_add_response(dialog, "ok", _("OK"));
+    adw_dialog_present(ADW_DIALOG(dialog), GTK_WIDGET(app->win));
+}
+
+/* 2-column tile grid of quick actions, restricted to real existing
+ * actions (refresh / factory reset / device info dialog) -- the
+ * reference mockup also showed "Default profile"/"Export profile"/
+ * "Import profile" tiles, which this app has no backing feature for
+ * (there's no multi-profile storage in the mouse or the app), so they're
+ * intentionally left out rather than wired to nothing. */
+static GtkWidget *build_quick_actions_card(App *app)
+{
+    GtkWidget *card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+    gtk_widget_add_css_class(card, "ajazz-card");
+    gtk_widget_set_size_request(card, 220, -1);
+    GtkWidget *title = gtk_label_new(_("Quick actions"));
+    gtk_widget_add_css_class(title, "ajazz-card-title");
+    gtk_widget_set_halign(title, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(card), title);
+
+    GtkWidget *grid = gtk_grid_new();
+    gtk_grid_set_row_spacing(GTK_GRID(grid), 8);
+    gtk_grid_set_column_spacing(GTK_GRID(grid), 8);
+    gtk_grid_set_column_homogeneous(GTK_GRID(grid), TRUE);
+    gtk_grid_set_row_homogeneous(GTK_GRID(grid), TRUE);
+
+    struct { const char *icon, *title, *sub; GCallback cb; } tiles[] = {
+        {"view-refresh-symbolic", N_("Refresh"), N_("Re-read from mouse"), G_CALLBACK(on_home_refresh_action)},
+        {"edit-undo-symbolic", N_("Factory reset"), N_("Restore all defaults"), G_CALLBACK(on_factory_reset_clicked)},
+        {"dialog-information-symbolic", N_("Device info"), N_("VID/PID, firmware id"), G_CALLBACK(on_home_device_info_clicked)},
+    };
+    for (guint i = 0; i < G_N_ELEMENTS(tiles); i++) {
+        GtkWidget *tile = gtk_button_new();
+        gtk_widget_add_css_class(tile, "flat");
+        GtkWidget *tbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+        GtkWidget *icon = gtk_image_new_from_icon_name(tiles[i].icon);
+        gtk_image_set_pixel_size(GTK_IMAGE(icon), 20);
+        GtkWidget *t_lbl = gtk_label_new(gettext(tiles[i].title));
+        gtk_widget_add_css_class(t_lbl, "heading");
+        GtkWidget *s_lbl = gtk_label_new(gettext(tiles[i].sub));
+        gtk_widget_add_css_class(s_lbl, "dim-label");
+        gtk_widget_add_css_class(s_lbl, "caption");
+        gtk_label_set_wrap(GTK_LABEL(s_lbl), TRUE);
+        gtk_box_append(GTK_BOX(tbox), icon);
+        gtk_box_append(GTK_BOX(tbox), t_lbl);
+        gtk_box_append(GTK_BOX(tbox), s_lbl);
+        gtk_button_set_child(GTK_BUTTON(tile), tbox);
+        g_signal_connect(tile, "clicked", tiles[i].cb, app);
+        gtk_grid_attach(GTK_GRID(grid), tile, i % 2, i / 2, 1, 1);
+    }
+    gtk_box_append(GTK_BOX(card), grid);
+    return card;
+}
+
+/* Compact "Button Mapping" readout: one line per physical button showing
+ * its current function, kept in sync by page_buttons.c's
+ * buttons_fetch_apply() via app->home_key_lbl[] -- the full interactive
+ * mouse diagram lives on the Buttons page itself (see build_mouse_diagram()
+ * there); duplicating that Cairo drawing here for a dashboard glance
+ * would be a lot of code for a summary card, so this reuses the same
+ * default-name labels instead. */
+/* Same factory-default names as page_buttons.c's default_button_names --
+ * duplicated (not shared) since that array is file-static there and this
+ * is purely a placeholder shown until buttons_fetch_apply() overwrites it
+ * with what's actually on the mouse. */
+static const char *home_default_button_names[AJAZZ_KEY_SLOTS] = {
+    N_("Left click"), N_("Right click"), N_("Middle click"), N_("Back"), N_("Forward"),
+};
+
+static GtkWidget *build_button_mapping_card(App *app)
+{
+    GtkWidget *card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+    gtk_widget_add_css_class(card, "ajazz-card");
+    gtk_widget_set_hexpand(card, TRUE);
+    GtkWidget *title = gtk_label_new(_("Button mapping"));
+    gtk_widget_add_css_class(title, "ajazz-card-title");
+    gtk_widget_set_halign(title, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(card), title);
+
+    GtkWidget *list = gtk_list_box_new();
+    gtk_widget_add_css_class(list, "boxed-list");
+    for (int i = 0; i < AJAZZ_KEY_SLOTS; i++) {
+        GtkWidget *row = gtk_list_box_row_new();
+        GtkWidget *rowbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+        gtk_widget_set_margin_top(rowbox, 8);
+        gtk_widget_set_margin_bottom(rowbox, 8);
+        gtk_widget_set_margin_start(rowbox, 10);
+        gtk_widget_set_margin_end(rowbox, 10);
+        char name[32];
+        snprintf(name, sizeof(name), _("Button %d"), i + 1);
+        GtkWidget *name_lbl = gtk_label_new(name);
+        gtk_widget_set_halign(name_lbl, GTK_ALIGN_START);
+        gtk_widget_set_hexpand(name_lbl, TRUE);
+        GtkWidget *fn_lbl = gtk_label_new(gettext(home_default_button_names[i]));
+        gtk_widget_add_css_class(fn_lbl, "dim-label");
+        app->home_key_lbl[i] = GTK_LABEL(fn_lbl);
+        gtk_box_append(GTK_BOX(rowbox), name_lbl);
+        gtk_box_append(GTK_BOX(rowbox), fn_lbl);
+        gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), rowbox);
+        gtk_list_box_append(GTK_LIST_BOX(list), row);
+    }
+    gtk_box_append(GTK_BOX(card), list);
+
+    GtkWidget *goto_btn = gtk_button_new_with_label(_("Open Buttons page"));
+    gtk_widget_add_css_class(goto_btn, "flat");
+    g_object_set_data(G_OBJECT(goto_btn), "target-page", (gpointer)"buttons");
+    g_signal_connect(goto_btn, "clicked", G_CALLBACK(on_home_goto_clicked), app);
+    gtk_box_append(GTK_BOX(card), goto_btn);
+    return card;
+}
+
 GtkWidget *build_home_page(App *app)
 {
-    GtkWidget *page = adw_preferences_page_new();
+    GtkWidget *outer = gtk_box_new(GTK_ORIENTATION_VERTICAL, 16);
+    gtk_widget_set_margin_top(outer, 16);
+    gtk_widget_set_margin_bottom(outer, 16);
+    gtk_widget_set_margin_start(outer, 16);
+    gtk_widget_set_margin_end(outer, 16);
 
-    AdwPreferencesGroup *hero_group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
-    adw_preferences_group_add(hero_group, build_hero(app));
-    adw_preferences_page_add(ADW_PREFERENCES_PAGE(page), hero_group);
+    gtk_box_append(GTK_BOX(outer), build_hero(app));
 
-    AdwPreferencesGroup *dev_group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
-    adw_preferences_group_set_title(dev_group, _("Device details"));
-    adw_preferences_group_add(dev_group, GTK_WIDGET(info_row(_("VID:PID"), &app->lbl_vidpid)));
-    adw_preferences_group_add(dev_group, GTK_WIDGET(info_row(_("Firmware id"), &app->lbl_devid)));
-    adw_preferences_page_add(ADW_PREFERENCES_PAGE(page), dev_group);
+    /* Row 1: 4 equal-width stat cards (DPI / Report rate / Battery /
+     * Lighting), each a glance-and-jump into its detail page. */
+    GtkWidget *stat_row = gtk_grid_new();
+    gtk_grid_set_column_spacing(GTK_GRID(stat_row), 16);
+    gtk_grid_set_column_homogeneous(GTK_GRID(stat_row), TRUE);
+    gtk_box_append(GTK_BOX(outer), stat_row);
 
-    AdwPreferencesGroup *compat_group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
-    adw_preferences_group_set_title(compat_group, _("Compatibility"));
+    /* A GtkFlowBox (not a plain horizontal box) so 6 chips never force
+     * this card -- and with it the whole 4-column stat row -- wider
+     * than the space actually available; it wraps to a second line
+     * instead of demanding extra width. */
+    GtkWidget *dpi_chips = gtk_flow_box_new();
+    gtk_flow_box_set_selection_mode(GTK_FLOW_BOX(dpi_chips), GTK_SELECTION_NONE);
+    gtk_flow_box_set_homogeneous(GTK_FLOW_BOX(dpi_chips), TRUE);
+    gtk_flow_box_set_max_children_per_line(GTK_FLOW_BOX(dpi_chips), 3);
+    gtk_flow_box_set_min_children_per_line(GTK_FLOW_BOX(dpi_chips), 1);
+    gtk_flow_box_set_row_spacing(GTK_FLOW_BOX(dpi_chips), 4);
+    gtk_flow_box_set_column_spacing(GTK_FLOW_BOX(dpi_chips), 4);
+    gtk_widget_set_halign(dpi_chips, GTK_ALIGN_CENTER);
+    static const int home_dpi_chip_values[AJAZZ_DPI_STAGES] = {400, 800, 1600, 3200, 6400, 12800};
+    for (int i = 0; i < AJAZZ_DPI_STAGES; i++) {
+        char label[8];
+        snprintf(label, sizeof(label), "%d", home_dpi_chip_values[i]);
+        GtkWidget *chip = gtk_button_new_with_label(label);
+        gtk_widget_add_css_class(chip, "pill");
+        gtk_widget_add_css_class(chip, "flat");
+        gpointer *data = g_new(gpointer, 2);
+        data[0] = app;
+        data[1] = GINT_TO_POINTER(i);
+        g_signal_connect_data(chip, "clicked", G_CALLBACK(on_home_dpi_chip_clicked), data, free_closure_data, 0);
+        gtk_flow_box_append(GTK_FLOW_BOX(dpi_chips), chip);
+    }
+    gtk_grid_attach(GTK_GRID(stat_row),
+        build_stat_card(_("DPI"), &app->home_dpi_val, _("Current DPI"), dpi_chips, _("DPI Stages"), "config", app),
+        0, 0, 1, 1);
+
+    gtk_grid_attach(GTK_GRID(stat_row),
+        build_stat_card(_("Polling rate"), &app->home_rate_val, _("Report rate"), NULL, _("Performance settings"), "config", app),
+        1, 0, 1, 1);
+
+    gtk_grid_attach(GTK_GRID(stat_row),
+        build_battery_stat_card(app, _("Sensor & power"), "config"),
+        2, 0, 1, 1);
+
+    gtk_grid_attach(GTK_GRID(stat_row),
+        build_stat_card(_("Lighting"), &app->home_light_val, _("Current effect"), NULL, _("Lighting settings"), "lighting", app),
+        3, 0, 1, 1);
+
+    /* Row 2: Button mapping (2/3 width) + Quick actions (1/3 width). */
+    GtkWidget *row2 = gtk_grid_new();
+    gtk_grid_set_column_spacing(GTK_GRID(row2), 16);
+    gtk_grid_set_column_homogeneous(GTK_GRID(row2), TRUE);
+    gtk_box_append(GTK_BOX(outer), row2);
+    GtkWidget *mapping_card = build_button_mapping_card(app);
+    gtk_grid_attach(GTK_GRID(row2), mapping_card, 0, 0, 2, 1);
+    gtk_grid_attach(GTK_GRID(row2), build_quick_actions_card(app), 2, 0, 1, 1);
+
+    GtkWidget *grid = gtk_grid_new();
+    gtk_grid_set_row_spacing(GTK_GRID(grid), 16);
+    gtk_grid_set_column_spacing(GTK_GRID(grid), 16);
+    gtk_grid_set_column_homogeneous(GTK_GRID(grid), TRUE);
+    gtk_box_append(GTK_BOX(outer), grid);
+
+    /* Device details card */
+    GtkWidget *dev_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+    gtk_box_append(GTK_BOX(dev_box), GTK_WIDGET(info_row(_("VID:PID"), &app->lbl_vidpid)));
+    gtk_box_append(GTK_BOX(dev_box), GTK_WIDGET(info_row(_("Firmware id"), &app->lbl_devid)));
+    GtkWidget *dev_card = make_card(_("Device details"), dev_box);
+    gtk_grid_attach(GTK_GRID(grid), dev_card, 0, 0, 1, 1);
+
+    /* Compatibility card */
+    GtkWidget *compat_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
     app->lbl_confirmed = GTK_LABEL(gtk_label_new(""));
     gtk_widget_add_css_class(GTK_WIDGET(app->lbl_confirmed), "dim-label");
     gtk_label_set_wrap(app->lbl_confirmed, TRUE);
     gtk_widget_set_halign(GTK_WIDGET(app->lbl_confirmed), GTK_ALIGN_START);
-    gtk_widget_set_margin_start(GTK_WIDGET(app->lbl_confirmed), 6);
-    gtk_widget_set_margin_end(GTK_WIDGET(app->lbl_confirmed), 6);
     gtk_widget_set_margin_bottom(GTK_WIDGET(app->lbl_confirmed), 4);
-    adw_preferences_group_add(compat_group, GTK_WIDGET(app->lbl_confirmed));
-
+    gtk_box_append(GTK_BOX(compat_box), GTK_WIDGET(app->lbl_confirmed));
     for (size_t i = 0; i < N_CAP_ROWS; i++) {
-        AdwActionRow *row = ADW_ACTION_ROW(adw_action_row_new());
-        adw_preferences_row_set_title(ADW_PREFERENCES_ROW(row), gettext(CAP_ROWS[i].label));
+        GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+        GtkWidget *lbl = gtk_label_new(gettext(CAP_ROWS[i].label));
+        gtk_widget_set_halign(lbl, GTK_ALIGN_START);
+        gtk_widget_set_hexpand(lbl, TRUE);
         app->cap_badge[i] = make_confirm_badge();
-        adw_action_row_add_suffix(row, app->cap_badge[i]);
-        adw_preferences_group_add(compat_group, GTK_WIDGET(row));
+        gtk_box_append(GTK_BOX(row), lbl);
+        gtk_box_append(GTK_BOX(row), app->cap_badge[i]);
+        gtk_box_append(GTK_BOX(compat_box), row);
     }
-    adw_preferences_page_add(ADW_PREFERENCES_PAGE(page), compat_group);
+    GtkWidget *compat_card = make_card(_("Compatibility"), compat_box);
+    gtk_grid_attach(GTK_GRID(grid), compat_card, 1, 0, 1, 2);
 
-    AdwPreferencesGroup *issues_group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
-    adw_preferences_group_set_title(issues_group, _("Known limitations"));
+    /* Known limitations card */
     GtkWidget *issues = gtk_label_new(
         _("- Macros fit 3 key/button press+release actions per button in a\n"
           "  single write; longer macros (up to 50) use a multi-packet write.\n"
@@ -404,20 +826,17 @@ GtkWidget *build_home_page(App *app)
     gtk_widget_add_css_class(issues, "dim-label");
     gtk_label_set_wrap(GTK_LABEL(issues), TRUE);
     gtk_widget_set_halign(issues, GTK_ALIGN_START);
-    gtk_widget_set_margin_start(issues, 6);
-    gtk_widget_set_margin_end(issues, 6);
-    adw_preferences_group_add(issues_group, issues);
-    adw_preferences_page_add(ADW_PREFERENCES_PAGE(page), issues_group);
+    GtkWidget *issues_card = make_card(_("Known limitations"), issues);
+    gtk_grid_attach(GTK_GRID(grid), issues_card, 0, 1, 1, 1);
 
-    AdwPreferencesGroup *danger_group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
-    adw_preferences_group_set_title(danger_group, _("Danger zone"));
+    /* Danger zone card */
     GtkWidget *btn_factory_reset = gtk_button_new_with_label(_("Restore factory defaults"));
     gtk_widget_add_css_class(btn_factory_reset, "destructive-action");
     gtk_widget_add_css_class(btn_factory_reset, "pill");
     gtk_widget_set_halign(btn_factory_reset, GTK_ALIGN_START);
     g_signal_connect(btn_factory_reset, "clicked", G_CALLBACK(on_factory_reset_clicked), app);
-    adw_preferences_group_add(danger_group, btn_factory_reset);
-    adw_preferences_page_add(ADW_PREFERENCES_PAGE(page), danger_group);
+    GtkWidget *danger_card = make_card(_("Danger zone"), btn_factory_reset);
+    gtk_grid_attach(GTK_GRID(grid), danger_card, 0, 2, 2, 1);
 
-    return page;
+    return outer;
 }

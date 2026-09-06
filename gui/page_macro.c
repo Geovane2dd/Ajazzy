@@ -172,6 +172,27 @@ static void on_macro_action_remove_clicked(GtkButton *btn, gpointer user_data)
     update_macro_add_button(app);
 }
 
+/* Icon shown at the start of each action row, matching the action's kind
+ * -- purely decorative (a visual "type" column), the actual action is
+ * still whatever's selected in the row's dropdown. */
+static const char *macro_action_icon_name(int kind)
+{
+    switch (kind) {
+        case MA_BUTTON: return "input-mouse-symbolic";
+        case MA_KEY:     return "input-keyboard-symbolic";
+        default:         return "action-unavailable-symbolic";
+    }
+}
+
+static void on_macro_action_kind_changed(GObject *dd, GParamSpec *pspec, gpointer user_data)
+{
+    (void)pspec;
+    GtkWidget *icon = user_data;
+    guint sel = adw_combo_row_get_selected(ADW_COMBO_ROW(dd));
+    int kind = (sel < N_MACRO_ACTIONS) ? macro_actions[sel].kind : MA_NONE;
+    gtk_image_set_from_icon_name(GTK_IMAGE(icon), macro_action_icon_name(kind));
+}
+
 static AdwComboRow *add_macro_action_row(App *app)
 {
     const char *action_names[MAX_MACRO_ACTIONS + 1];
@@ -182,6 +203,14 @@ static AdwComboRow *add_macro_action_row(App *app)
     AdwComboRow *dd = ADW_COMBO_ROW(adw_combo_row_new());
     adw_combo_row_set_model(dd, G_LIST_MODEL(gtk_string_list_new(action_names)));
     adw_combo_row_set_selected(dd, 0);
+
+    /* fixed-width "type" icon column, so every row lines up like a table
+     * column even though the underlying widget is still a preferences row */
+    GtkWidget *icon = gtk_image_new_from_icon_name(macro_action_icon_name(MA_NONE));
+    gtk_widget_set_size_request(icon, 24, -1);
+    gtk_widget_add_css_class(icon, "dim-label");
+    adw_action_row_add_prefix(ADW_ACTION_ROW(dd), icon);
+    g_signal_connect(dd, "notify::selected", G_CALLBACK(on_macro_action_kind_changed), icon);
 
     GtkWidget *remove_btn = gtk_button_new_from_icon_name("list-remove-symbolic");
     gtk_widget_add_css_class(remove_btn, "flat");
@@ -285,11 +314,41 @@ static void on_macro_clear(GtkButton *btn, gpointer user_data)
 
 GtkWidget *build_macro_page(App *app)
 {
-    GtkWidget *page = adw_preferences_page_new();
+    GtkWidget *outer = gtk_box_new(GTK_ORIENTATION_VERTICAL, 16);
+    gtk_widget_set_margin_top(outer, 16);
+    gtk_widget_set_margin_bottom(outer, 16);
+    gtk_widget_set_margin_start(outer, 16);
+    gtk_widget_set_margin_end(outer, 16);
+
+    GtkWidget *header = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+    GtkWidget *title = gtk_label_new(_("Macros"));
+    gtk_widget_add_css_class(title, "title-2");
+    gtk_widget_set_halign(title, GTK_ALIGN_START);
+    GtkWidget *subtitle = gtk_label_new(_("Assign a short press-and-release sequence to one of the mouse's buttons."));
+    gtk_widget_add_css_class(subtitle, "dim-label");
+    gtk_widget_set_halign(subtitle, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(header), title);
+    gtk_box_append(GTK_BOX(header), subtitle);
+    gtk_box_append(GTK_BOX(outer), header);
+
+    GtkWidget *columns = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 16);
+    gtk_box_append(GTK_BOX(outer), columns);
+
+    /* left column: the action list itself, given most of the width */
+    GtkWidget *left_page = adw_preferences_page_new();
+    gtk_widget_set_hexpand(left_page, TRUE);
+    gtk_box_append(GTK_BOX(columns), left_page);
+
+    /* right column: which button, the shared delay, and apply/reset --
+     * fixed width so it reads as a settings sidebar, matching the
+     * DPI/Lighting pages' list+detail-panel layout. */
+    GtkWidget *right_page = adw_preferences_page_new();
+    gtk_widget_set_size_request(right_page, 300, -1);
+    gtk_box_append(GTK_BOX(columns), right_page);
 
     AdwPreferencesGroup *slot_group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
     adw_preferences_group_set_title(slot_group, _("Button"));
-    adw_preferences_group_set_description(slot_group, _("Choose which button plays the macro below."));
+    adw_preferences_group_set_description(slot_group, _("Choose which button plays the macro on the left."));
 
     GtkWidget *slot_row_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
     gtk_widget_set_margin_top(slot_row_box, 6);
@@ -325,12 +384,12 @@ GtkWidget *build_macro_page(App *app)
     gtk_toggle_button_set_active(app->macro_slot_btn[0], TRUE);
     app->macro_slot_selected = 0;
     adw_preferences_group_add(slot_group, slot_row_box);
-    adw_preferences_page_add(ADW_PREFERENCES_PAGE(page), slot_group);
+    adw_preferences_page_add(ADW_PREFERENCES_PAGE(right_page), slot_group);
 
     app->macro_actions_group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
     adw_preferences_group_set_title(app->macro_actions_group, _("Macro"));
     adw_preferences_group_set_description(app->macro_actions_group,
-        _("Actions are played in order, each as press-then-release, with the same delay between every step."));
+        _("Actions are played in order, each as press-then-release, with the same delay between every step. The icon on the left shows whether a step is a keyboard key or a mouse button."));
 
     app->macro_add_btn = gtk_button_new_from_icon_name("list-add-symbolic");
     gtk_widget_add_css_class(app->macro_add_btn, "flat");
@@ -342,10 +401,7 @@ GtkWidget *build_macro_page(App *app)
     /* created before the first add_macro_action_row() call below, since
      * that call runs update_macro_add_button() which references this */
     app->macro_experimental_hint = gtk_label_new(
-        _("More than 3 actions needs a multi-packet write (up to 50 actions) --\n"
-          "reconstructed from the official driver's own code rather than a wire\n"
-          "capture, so test the button afterward to make sure it plays back\n"
-          "correctly."));
+        _("Long macros (more than 3 actions) are less tested -- try the button after saving to make sure it plays back correctly."));
     gtk_widget_add_css_class(app->macro_experimental_hint, "warning");
     gtk_widget_add_css_class(app->macro_experimental_hint, "caption");
     gtk_label_set_wrap(GTK_LABEL(app->macro_experimental_hint), TRUE);
@@ -354,7 +410,7 @@ GtkWidget *build_macro_page(App *app)
 
     app->macro_action_rows = g_ptr_array_new();
     add_macro_action_row(app);
-    adw_preferences_page_add(ADW_PREFERENCES_PAGE(page), app->macro_actions_group);
+    adw_preferences_page_add(ADW_PREFERENCES_PAGE(left_page), app->macro_actions_group);
 
     AdwPreferencesGroup *delay_group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
     adw_preferences_group_add(delay_group, app->macro_experimental_hint);
@@ -364,10 +420,10 @@ GtkWidget *build_macro_page(App *app)
     adw_action_row_set_subtitle(ADW_ACTION_ROW(app->macro_delay), _("Milliseconds"));
     adw_spin_row_set_value(app->macro_delay, 10);
     adw_preferences_group_add(delay_group, GTK_WIDGET(app->macro_delay));
-    adw_preferences_page_add(ADW_PREFERENCES_PAGE(page), delay_group);
+    adw_preferences_page_add(ADW_PREFERENCES_PAGE(right_page), delay_group);
 
     AdwPreferencesGroup *actions_group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
-    GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
     GtkWidget *btn_apply = gtk_button_new_with_label(_("Save to button"));
     gtk_widget_add_css_class(btn_apply, "suggested-action");
     gtk_widget_add_css_class(btn_apply, "pill");
@@ -380,7 +436,7 @@ GtkWidget *build_macro_page(App *app)
     gtk_box_append(GTK_BOX(actions), btn_apply);
     gtk_box_append(GTK_BOX(actions), btn_clear);
     adw_preferences_group_add(actions_group, actions);
-    adw_preferences_page_add(ADW_PREFERENCES_PAGE(page), actions_group);
+    adw_preferences_page_add(ADW_PREFERENCES_PAGE(right_page), actions_group);
 
-    return page;
+    return outer;
 }

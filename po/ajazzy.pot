@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-05 13:16-0300\n"
+"POT-Creation-Date: 2026-09-06 09:10-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,148 +17,317 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: gui/main.c:176
+#: gui/main.c:197
 msgid "Connected"
 msgstr ""
 
-#: gui/main.c:176 gui/main.c:306 gui/page_home.c:216
+#: gui/main.c:197 gui/main.c:389 gui/main.c:523 gui/page_home.c:343
 msgid "Disconnected"
 msgstr ""
 
-#: gui/main.c:204
+#: gui/main.c:250 gui/main.c:510 gui/page_home.c:239
+msgid "No device"
+msgstr ""
+
+#: gui/main.c:263
 msgid "No AJAZZ mouse found. Check the connection and permissions."
 msgstr ""
 
-#: gui/main.c:256 gui/main.c:379 gui/main.c:407 gui/main.c:419 gui/main.c:444
+#: gui/main.c:337 gui/main.c:462 gui/main.c:503 gui/main.c:537 gui/main.c:562
 msgid "Ajazzy"
 msgstr ""
 
-#: gui/main.c:259
+#: gui/main.c:340
 msgid "AJAZZ mouse configurator"
 msgstr ""
 
-#: gui/main.c:396
+#: gui/main.c:490
 msgid "Home"
 msgstr ""
 
-#: gui/main.c:397
+#: gui/main.c:491 gui/page_buttons.c:592
 msgid "Buttons"
 msgstr ""
 
-#: gui/main.c:398
+#: gui/main.c:492
 msgid "Mouse settings"
 msgstr ""
 
-#: gui/main.c:399
+#: gui/main.c:493 gui/page_home.c:772
 msgid "Lighting"
 msgstr ""
 
-#: gui/main.c:400 gui/page_macro.c:290
+#: gui/main.c:494 gui/page_macro.c:390
 msgid "Macro"
 msgstr ""
 
-#: gui/page_home.c:71
+#: gui/main.c:495 gui/page_profiles.c:390
+msgid "Profiles"
+msgstr ""
+
+#: gui/main.c:496 gui/page_lighting.c:743
+msgid "Settings"
+msgstr ""
+
+#: gui/page_home.c:73 gui/page_home.c:760 gui/page_mouse.c:560
 msgid "DPI"
 msgstr ""
 
-#: gui/page_home.c:72 gui/page_mouse.c:297
+#: gui/page_home.c:74 gui/page_home.c:764 gui/page_mouse.c:746
 msgid "Report rate"
 msgstr ""
 
-#: gui/page_home.c:73 gui/page_lighting.c:305
+#: gui/page_home.c:75 gui/page_lighting.c:696
 msgid "RGB lighting"
 msgstr ""
 
-#: gui/page_home.c:74 gui/page_mouse.c:328
+#: gui/page_home.c:76 gui/page_mouse.c:777
 msgid "Sensor and power"
 msgstr ""
 
-#: gui/page_home.c:75
+#: gui/page_home.c:77
 msgid "Button remapping"
 msgstr ""
 
-#: gui/page_home.c:76
+#: gui/page_home.c:78 gui/page_home.c:485 gui/page_home.c:506
 msgid "Battery"
 msgstr ""
 
-#: gui/page_home.c:77
+#: gui/page_home.c:79 gui/page_macro.c:324
 msgid "Macros"
 msgstr ""
 
-#: gui/page_home.c:84 gui/page_home.c:206 gui/tray.c:114
+#: gui/page_home.c:121
+msgid "Low"
+msgstr ""
+
+#: gui/page_home.c:121
+msgid "Medium"
+msgstr ""
+
+#: gui/page_home.c:121
+msgid "Good"
+msgstr ""
+
+#: gui/page_home.c:121
+msgid "Full"
+msgstr ""
+
+#: gui/page_home.c:146
+#, c-format
+msgid "Battery: %d%% -- %s (charging)"
+msgstr ""
+
+#: gui/page_home.c:146
+#, c-format
+msgid "Battery: %d%% -- %s"
+msgstr ""
+
+#: gui/page_home.c:156
+msgid "Battery: unknown"
+msgstr ""
+
+#: gui/page_home.c:186 gui/page_lighting.c:703 gui/page_profiles.c:278
+msgid "Off"
+msgstr ""
+
+#: gui/page_home.c:186 gui/page_lighting.c:704 gui/page_lighting.c:864
+#: gui/page_profiles.c:278
+msgid "Rainbow"
+msgstr ""
+
+#: gui/page_home.c:186 gui/page_lighting.c:703 gui/page_lighting.c:882
+msgid "Constant colour"
+msgstr ""
+
+#: gui/page_home.c:186 gui/page_profiles.c:278
+msgid "Colour cycle"
+msgstr ""
+
+#: gui/page_home.c:229 gui/page_home.c:333 gui/tray.c:114
 msgid "Not connected"
 msgstr ""
 
-#: gui/page_home.c:93 gui/tray.c:282
+#: gui/page_home.c:244 gui/tray.c:282
 msgid "No AJAZZ mouse detected"
 msgstr ""
 
-#: gui/page_home.c:112
+#: gui/page_home.c:267
 msgid ""
 "This exact model hasn't been individually confirmed to work --\n"
 "it should, since every AJAZZ mouse we've looked at shares the\n"
 "same protocol, but please report back either way."
 msgstr ""
 
-#: gui/page_home.c:116
+#: gui/page_home.c:271
 msgid "Protocol confirmed against real hardware for this model."
 msgstr ""
 
-#: gui/page_home.c:143
-#, c-format
-msgid "Battery: %d%% -- %s (charging)"
-msgstr ""
-
-#: gui/page_home.c:143
-#, c-format
-msgid "Battery: %d%% -- %s"
-msgstr ""
-
-#: gui/page_home.c:150
-msgid "Battery: unknown"
-msgstr ""
-
-#: gui/page_home.c:173 gui/page_home.c:182
+#: gui/page_home.c:300 gui/page_home.c:309
 msgid "Untested"
 msgstr ""
 
-#: gui/page_home.c:182
+#: gui/page_home.c:309
 msgid "Tested ✓"
 msgstr ""
 
-#: gui/page_home.c:228
+#: gui/page_home.c:355
 msgid "BATTERY"
 msgstr ""
 
-#: gui/page_home.c:246
+#: gui/page_home.c:373
 msgid "⚡ Charging"
 msgstr ""
 
-#: gui/page_home.c:259
+#: gui/page_home.c:386 gui/page_home.c:633
 msgid "Refresh"
 msgstr ""
 
-#: gui/page_home.c:275
-msgid "Device details"
+#: gui/page_home.c:403 gui/page_home.c:601 gui/page_mouse.c:379
+#: gui/page_mouse.c:397 gui/page_mouse.c:418 gui/page_mouse.c:438
+#: gui/page_mouse.c:455 gui/page_mouse.c:480 gui/page_mouse.c:528
+#: gui/page_lighting.c:281 gui/page_buttons.c:86 gui/page_buttons.c:118
+#: gui/page_macro.c:243 gui/page_macro.c:296 gui/page_profiles.c:349
+msgid "Connect the mouse first."
 msgstr ""
 
-#: gui/page_home.c:276
+#: gui/page_home.c:408
+msgid "Factory reset sent."
+msgstr ""
+
+#: gui/page_home.c:411
+msgid "Failed to send the factory reset."
+msgstr ""
+
+#: gui/page_home.c:420
+msgid "Restore factory defaults?"
+msgstr ""
+
+#: gui/page_home.c:421
+msgid ""
+"This resets DPI, DPI colours, report rate, lighting, sensor/power, button "
+"mapping and macros. There's no undo once sent."
+msgstr ""
+
+#: gui/page_home.c:423 gui/page_lighting.c:682 gui/page_buttons.c:105
+#: gui/page_profiles.c:371 gui/page_settings.c:233
+msgid "Cancel"
+msgstr ""
+
+#: gui/page_home.c:424
+msgid "Restore"
+msgstr ""
+
+#: gui/page_home.c:605
+msgid "Device information"
+msgstr ""
+
+#: gui/page_home.c:606
+msgid "OK"
+msgstr ""
+
+#: gui/page_home.c:621
+msgid "Quick actions"
+msgstr ""
+
+#: gui/page_home.c:633
+msgid "Re-read from mouse"
+msgstr ""
+
+#: gui/page_home.c:634
+msgid "Factory reset"
+msgstr ""
+
+#: gui/page_home.c:634
+msgid "Restore all defaults"
+msgstr ""
+
+#: gui/page_home.c:635
+msgid "Device info"
+msgstr ""
+
+#: gui/page_home.c:635
+msgid "VID/PID, firmware id"
+msgstr ""
+
+#: gui/page_home.c:672 gui/page_buttons.c:223 gui/page_macro.c:37
+msgid "Left click"
+msgstr ""
+
+#: gui/page_home.c:672 gui/page_buttons.c:223 gui/page_macro.c:38
+msgid "Right click"
+msgstr ""
+
+#: gui/page_home.c:672 gui/page_buttons.c:223 gui/page_macro.c:39
+msgid "Middle click"
+msgstr ""
+
+#: gui/page_home.c:672 gui/page_buttons.c:223
+msgid "Back"
+msgstr ""
+
+#: gui/page_home.c:672 gui/page_buttons.c:223
+msgid "Forward"
+msgstr ""
+
+#: gui/page_home.c:680
+msgid "Button mapping"
+msgstr ""
+
+#: gui/page_home.c:695 gui/page_buttons.c:635 gui/page_macro.c:361
+#, c-format
+msgid "Button %d"
+msgstr ""
+
+#: gui/page_home.c:709
+msgid "Open Buttons page"
+msgstr ""
+
+#: gui/page_home.c:760
+msgid "Current DPI"
+msgstr ""
+
+#: gui/page_home.c:760
+msgid "DPI Stages"
+msgstr ""
+
+#: gui/page_home.c:764
+msgid "Polling rate"
+msgstr ""
+
+#: gui/page_home.c:764
+msgid "Performance settings"
+msgstr ""
+
+#: gui/page_home.c:768
+msgid "Sensor & power"
+msgstr ""
+
+#: gui/page_home.c:772
+msgid "Current effect"
+msgstr ""
+
+#: gui/page_home.c:772
+msgid "Lighting settings"
+msgstr ""
+
+#: gui/page_home.c:792
 msgid "VID:PID"
 msgstr ""
 
-#: gui/page_home.c:277
+#: gui/page_home.c:793
 msgid "Firmware id"
 msgstr ""
 
-#: gui/page_home.c:281
+#: gui/page_home.c:794
+msgid "Device details"
+msgstr ""
+
+#: gui/page_home.c:815
 msgid "Compatibility"
 msgstr ""
 
-#: gui/page_home.c:301
-msgid "Known limitations"
-msgstr ""
-
-#: gui/page_home.c:303
+#: gui/page_home.c:820
 msgid ""
 "- Macros fit 3 key/button press+release actions per button in a\n"
 "  single write; longer macros (up to 50) use a multi-packet write.\n"
@@ -168,217 +337,355 @@ msgid ""
 "  a capture of that toggle landed on the exact same byte."
 msgstr ""
 
-#: gui/page_mouse.c:20
-msgid "10 seconds"
+#: gui/page_home.c:829
+msgid "Known limitations"
 msgstr ""
 
-#: gui/page_mouse.c:21
-msgid "30 seconds"
+#: gui/page_home.c:833
+msgid "Restore factory defaults"
+msgstr ""
+
+#: gui/page_home.c:838
+msgid "Danger zone"
 msgstr ""
 
 #: gui/page_mouse.c:22
-msgid "1 minute"
+msgid "10 seconds"
 msgstr ""
 
 #: gui/page_mouse.c:23
-msgid "2 minutes"
+msgid "30 seconds"
 msgstr ""
 
 #: gui/page_mouse.c:24
-msgid "5 minutes"
+msgid "1 minute"
 msgstr ""
 
 #: gui/page_mouse.c:25
-msgid "10 minutes"
+msgid "2 minutes"
 msgstr ""
 
 #: gui/page_mouse.c:26
-msgid "20 minutes"
+msgid "5 minutes"
 msgstr ""
 
 #: gui/page_mouse.c:27
+msgid "10 minutes"
+msgstr ""
+
+#: gui/page_mouse.c:28
+msgid "20 minutes"
+msgstr ""
+
+#: gui/page_mouse.c:29
 msgid "30 minutes"
 msgstr ""
 
-#: gui/page_mouse.c:40
+#: gui/page_mouse.c:162
 #, c-format
 msgid "DPI value (stage %d)"
 msgstr ""
 
-#: gui/page_mouse.c:136 gui/page_mouse.c:155 gui/page_mouse.c:173
-#: gui/page_mouse.c:195 gui/page_lighting.c:206 gui/page_buttons.c:86
-#: gui/page_buttons.c:118 gui/page_macro.c:173 gui/page_macro.c:226
-msgid "Connect the mouse first."
-msgstr ""
-
-#: gui/page_mouse.c:144
+#: gui/page_mouse.c:388
 msgid "DPI applied."
 msgstr ""
 
-#: gui/page_mouse.c:144
+#: gui/page_mouse.c:388
 msgid "Failed to apply DPI."
 msgstr ""
 
-#: gui/page_mouse.c:166
+#: gui/page_mouse.c:407
+msgid "DPI reset to factory defaults."
+msgstr ""
+
+#: gui/page_mouse.c:407
+msgid "Failed to reset DPI."
+msgstr ""
+
+#: gui/page_mouse.c:429 gui/page_mouse.c:540
 msgid "DPI colour applied."
 msgstr ""
 
-#: gui/page_mouse.c:166
+#: gui/page_mouse.c:429 gui/page_mouse.c:540
 msgid "Failed to apply DPI colour."
 msgstr ""
 
-#: gui/page_mouse.c:178
+#: gui/page_mouse.c:448
+msgid "DPI colours reset to factory defaults."
+msgstr ""
+
+#: gui/page_mouse.c:448
+msgid "Failed to reset DPI colours."
+msgstr ""
+
+#: gui/page_mouse.c:460
 msgid "Pick a report rate first."
 msgstr ""
 
-#: gui/page_mouse.c:183
+#: gui/page_mouse.c:467
 msgid "Report rate applied."
 msgstr ""
 
-#: gui/page_mouse.c:185
+#: gui/page_mouse.c:469
 msgid "Failed to apply report rate."
 msgstr ""
 
-#: gui/page_mouse.c:199
+#: gui/page_mouse.c:484
 msgid "Could not read the current sensor settings."
 msgstr ""
 
-#: gui/page_mouse.c:215
+#: gui/page_mouse.c:500
 msgid "Sensor and power settings applied."
 msgstr ""
 
-#: gui/page_mouse.c:217
+#: gui/page_mouse.c:502
 msgid "Failed to apply sensor settings."
 msgstr ""
 
-#: gui/page_mouse.c:226
-msgid "DPI sensitivity"
+#: gui/page_mouse.c:563
+msgid "Configure the mouse's 6 DPI stages and their indicator colours."
 msgstr ""
 
-#: gui/page_mouse.c:258
-msgid "Apply DPI"
-msgstr ""
-
-#: gui/page_mouse.c:271
-msgid "DPI indicator colour"
-msgstr ""
-
-#: gui/page_mouse.c:273
-msgid "Colour of the DPI LED for each stage"
-msgstr ""
-
-#: gui/page_mouse.c:276
+#: gui/page_mouse.c:590
 #, c-format
 msgid "Stage %d"
 msgstr ""
 
-#: gui/page_mouse.c:317
+#: gui/page_mouse.c:610
+msgid "DPI Stages Preview"
+msgstr ""
+
+#: gui/page_mouse.c:622
+msgid ""
+"Values snap to what the mouse's DPI table can actually hold; the highlighted "
+"point is the selected stage."
+msgstr ""
+
+#: gui/page_mouse.c:630
+msgid "Quick DPI"
+msgstr ""
+
+#: gui/page_mouse.c:655
+msgid "Apply DPI to mouse"
+msgstr ""
+
+#: gui/page_mouse.c:663
+msgid "Reset to factory defaults"
+msgstr ""
+
+#: gui/page_mouse.c:675
+msgid "Stage settings"
+msgstr ""
+
+#: gui/page_mouse.c:695
+msgid "Indicator colour"
+msgstr ""
+
+#: gui/page_mouse.c:710
+msgid "Quick colours"
+msgstr ""
+
+#: gui/page_mouse.c:733
+msgid "Reset colours to factory defaults"
+msgstr ""
+
+#: gui/page_mouse.c:766
 msgid "Apply report rate"
 msgstr ""
 
-#: gui/page_mouse.c:331
+#: gui/page_mouse.c:780
 msgid "Lift-off distance"
 msgstr ""
 
-#: gui/page_mouse.c:332
+#: gui/page_mouse.c:781
 msgid ""
-"Not in the official driver's UI for this mouse -- the firmware accepts it, "
-"AJAZZ's own app just doesn't expose it. May also control \"wake mouse on "
-"motion\" -- see Home"
+"Didn't show a visible effect in testing on this mouse -- may not do anything."
 msgstr ""
 
-#: gui/page_mouse.c:335
+#: gui/page_mouse.c:784
 msgid "1 mm"
 msgstr ""
 
-#: gui/page_mouse.c:336
+#: gui/page_mouse.c:785
 msgid "2 mm"
 msgstr ""
 
-#: gui/page_mouse.c:347
+#: gui/page_mouse.c:796
 msgid "Auto-sleep timer"
 msgstr ""
 
-#: gui/page_mouse.c:357
+#: gui/page_mouse.c:806
 msgid "Turn light off when idle"
 msgstr ""
 
-#: gui/page_mouse.c:361
+#: gui/page_mouse.c:810
 msgid "Apply sensor and power"
 msgstr ""
 
-#: gui/page_lighting.c:144
-msgid "Software colour cycle stopped (mouse not responding)."
+#: gui/page_lighting.c:184
+msgid "Software lighting effect stopped (mouse not responding)."
 msgstr ""
 
-#: gui/page_lighting.c:190
-msgid "Software breathing stopped (mouse not responding)."
+#: gui/page_lighting.c:223
+msgid "Click to remove"
 msgstr ""
 
-#: gui/page_lighting.c:219 gui/page_lighting.c:255
+#: gui/page_lighting.c:269
+msgid "Custom sequences hold up to 8 colours."
+msgstr ""
+
+#: gui/page_lighting.c:288
+msgid "Add at least one colour to the sequence first."
+msgstr ""
+
+#: gui/page_lighting.c:298 gui/page_lighting.c:332
 msgid "Failed to apply lighting."
 msgstr ""
 
-#: gui/page_lighting.c:227
-msgid ""
-"Software colour cycle started -- rotates the active DPI stage's colour live."
-msgstr ""
-
-#: gui/page_lighting.c:230
-msgid ""
-"Software breathing started -- fades the current DPI stage colour in and out."
-msgstr ""
-
-#: gui/page_lighting.c:253
-msgid "Lighting applied."
+#: gui/page_lighting.c:306
+msgid "Breathing effect started -- fades the mouse's colour live."
 msgstr ""
 
 #: gui/page_lighting.c:307
-msgid ""
-"\"Off\", rainbow cycle and constant colour are real firmware modes, "
-"confirmed against real hardware. The two \"Software\" effects aren't -- "
-"they're this app repeatedly re-sending real colour/brightness commands on a "
-"timer, so they stop if the app closes."
+msgid "Custom effect started -- plays your colour sequence live."
 msgstr ""
 
-#: gui/page_lighting.c:310
+#: gui/page_lighting.c:308
+msgid "Rainbow started -- rotates the mouse's colour live."
+msgstr ""
+
+#: gui/page_lighting.c:330
+msgid "Lighting applied."
+msgstr ""
+
+#: gui/page_lighting.c:517
+msgid "Failed to read that preset."
+msgstr ""
+
+#: gui/page_lighting.c:533
+msgid "That preset has no colours saved."
+msgstr ""
+
+#: gui/page_lighting.c:606
+msgid "Custom preset"
+msgstr ""
+
+#: gui/page_lighting.c:632
+msgid "Enter a preset name."
+msgstr ""
+
+#: gui/page_lighting.c:635 gui/page_lighting.c:667
+msgid "Failed to save the preset."
+msgstr ""
+
+#: gui/page_lighting.c:667
+msgid "Preset saved."
+msgstr ""
+
+#: gui/page_lighting.c:677 gui/page_lighting.c:819
+msgid "Save as preset"
+msgstr ""
+
+#: gui/page_lighting.c:678
+msgid ""
+"Saves the current effect, brightness, speed and colour as a one-click "
+"preset, stored on this PC."
+msgstr ""
+
+#: gui/page_lighting.c:680
+msgid "Preset name"
+msgstr ""
+
+#: gui/page_lighting.c:683 gui/page_profiles.c:372
+msgid "Save"
+msgstr ""
+
+#: gui/page_lighting.c:698
+msgid ""
+"\"Off\" and \"Constant colour\" work exactly as shown. The others animate "
+"the light live from this app -- they stop if it closes."
+msgstr ""
+
+#: gui/page_lighting.c:703
+msgid "Colour cycle (built-in)"
+msgstr ""
+
+#: gui/page_lighting.c:704 gui/page_profiles.c:278
+msgid "Breathing"
+msgstr ""
+
+#: gui/page_lighting.c:704
+msgid "Custom"
+msgstr ""
+
+#: gui/page_lighting.c:716
 msgid "Effect"
 msgstr ""
 
-#: gui/page_lighting.c:311
-msgid "Off"
-msgstr ""
-
-#: gui/page_lighting.c:311
-msgid "Rainbow cycle"
-msgstr ""
-
-#: gui/page_lighting.c:311
-msgid "Constant colour"
-msgstr ""
-
-#: gui/page_lighting.c:312
-msgid "Software colour cycle (real-time)"
-msgstr ""
-
-#: gui/page_lighting.c:313
-msgid "Software breathing (DPI stage colour)"
-msgstr ""
-
-#: gui/page_lighting.c:323
+#: gui/page_lighting.c:752
 msgid "Brightness"
 msgstr ""
 
-#: gui/page_lighting.c:324
+#: gui/page_lighting.c:753
 msgid "0 to 4 (25% steps)"
 msgstr ""
 
-#: gui/page_lighting.c:331
+#: gui/page_lighting.c:758
 msgid "Speed"
 msgstr ""
 
-#: gui/page_lighting.c:340
-msgid "Apply lighting"
+#: gui/page_lighting.c:768
+msgid "Colour"
+msgstr ""
+
+#: gui/page_lighting.c:784
+msgid "Sequence"
+msgstr ""
+
+#: gui/page_lighting.c:785
+msgid "Pick a colour above, then tap + to add it. Tap a swatch to remove it."
+msgstr ""
+
+#: gui/page_lighting.c:799
+msgid "Playback"
+msgstr ""
+
+#: gui/page_lighting.c:800
+msgid "Fade between colours"
+msgstr ""
+
+#: gui/page_lighting.c:800
+msgid "Hard cut"
+msgstr ""
+
+#: gui/page_lighting.c:811 gui/page_buttons.c:723
+msgid "Apply to mouse"
+msgstr ""
+
+#: gui/page_lighting.c:837
+msgid ""
+"\"Off\", rainbow cycle and constant colour are stored in the mouse and work "
+"without the software running; breathing and colour cycle need Ajazzy open."
+msgstr ""
+
+#: gui/page_lighting.c:855
+msgid "Lighting presets"
+msgstr ""
+
+#: gui/page_lighting.c:861
+msgid "Red"
+msgstr ""
+
+#: gui/page_lighting.c:862
+msgid "Green"
+msgstr ""
+
+#: gui/page_lighting.c:863
+msgid "Blue"
+msgstr ""
+
+#: gui/page_lighting.c:882
+msgid "Hardware effect"
 msgstr ""
 
 #: gui/page_buttons.c:30
@@ -389,23 +696,23 @@ msgstr ""
 msgid "Default (built-in click)"
 msgstr ""
 
-#: gui/page_buttons.c:38
+#: gui/page_buttons.c:38 gui/page_buttons.c:744
 msgid "Rapid-fire (auto-click)"
 msgstr ""
 
-#: gui/page_buttons.c:43
+#: gui/page_buttons.c:43 gui/page_buttons.c:744
 msgid "Volume up"
 msgstr ""
 
-#: gui/page_buttons.c:44
+#: gui/page_buttons.c:44 gui/page_buttons.c:744
 msgid "Volume down"
 msgstr ""
 
-#: gui/page_buttons.c:45
+#: gui/page_buttons.c:45 gui/page_buttons.c:744
 msgid "Mute"
 msgstr ""
 
-#: gui/page_buttons.c:46
+#: gui/page_buttons.c:46 gui/page_buttons.c:744
 msgid "Play / Pause"
 msgstr ""
 
@@ -463,15 +770,11 @@ msgstr ""
 msgid "This clears every button remap and restores the factory defaults."
 msgstr ""
 
-#: gui/page_buttons.c:105
-msgid "Cancel"
-msgstr ""
-
-#: gui/page_buttons.c:106
+#: gui/page_buttons.c:106 gui/page_settings.c:234 gui/page_settings.c:285
 msgid "Reset"
 msgstr ""
 
-#: gui/page_buttons.c:122 gui/page_macro.c:207 gui/page_macro.c:230
+#: gui/page_buttons.c:122 gui/page_macro.c:277 gui/page_macro.c:300
 msgid "Could not read the current button table."
 msgstr ""
 
@@ -502,59 +805,46 @@ msgstr ""
 msgid "Currently: custom code (0x%02x, not in this list)"
 msgstr ""
 
-#: gui/page_buttons.c:223 gui/page_macro.c:37
-msgid "Left click"
+#: gui/page_buttons.c:564
+msgid "This button can't be remapped."
 msgstr ""
 
-#: gui/page_buttons.c:223 gui/page_macro.c:38
-msgid "Right click"
+#: gui/page_buttons.c:574
+msgid "That function isn't available on this button."
 msgstr ""
 
-#: gui/page_buttons.c:223 gui/page_macro.c:39
-msgid "Middle click"
-msgstr ""
-
-#: gui/page_buttons.c:223
-msgid "Back"
-msgstr ""
-
-#: gui/page_buttons.c:223
-msgid "Forward"
-msgstr ""
-
-#: gui/page_buttons.c:459
-msgid "Button mapping"
-msgstr ""
-
-#: gui/page_buttons.c:461
+#: gui/page_buttons.c:595
 msgid ""
-"Pick a new function for each button, or click a number on the mouse to jump "
-"there."
+"Pick a button from the list (or click a number on the mouse) to change its "
+"function."
 msgstr ""
 
-#: gui/page_buttons.c:470 gui/page_macro.c:261
-#, c-format
-msgid "Button %d"
+#: gui/page_buttons.c:603
+msgid "Reset all to default"
 msgstr ""
 
-#: gui/page_buttons.c:476
+#: gui/page_buttons.c:664
 msgid "Fixed by the manufacturer"
 msgstr ""
 
-#: gui/page_buttons.c:496
+#: gui/page_buttons.c:679
+msgid "Function"
+msgstr ""
+
+#: gui/page_buttons.c:688
 msgid "Rapid-fire interval"
 msgstr ""
 
-#: gui/page_buttons.c:504
+#: gui/page_buttons.c:696
 msgid "Rapid-fire repeats"
 msgstr ""
 
-#: gui/page_buttons.c:527
-msgid "Apply remap"
+#: gui/page_buttons.c:739
+msgid "Popular functions"
 msgstr ""
 
-#: gui/page_buttons.c:532
-msgid "Reset all"
+#: gui/page_buttons.c:740
+msgid "Applies to whichever button is selected above."
 msgstr ""
 
 #: gui/page_macro.c:32
@@ -569,91 +859,258 @@ msgstr ""
 msgid "Button 5"
 msgstr ""
 
-#: gui/page_macro.c:95
+#: gui/page_macro.c:105
 msgid "plays a macro"
 msgstr ""
 
-#: gui/page_macro.c:95 gui/page_macro.c:275
+#: gui/page_macro.c:105 gui/page_macro.c:375
 msgid "default"
 msgstr ""
 
-#: gui/page_macro.c:112
+#: gui/page_macro.c:153
 #, c-format
 msgid "Action %u"
 msgstr ""
 
-#: gui/page_macro.c:149
+#: gui/page_macro.c:219
 msgid "Remove this action"
 msgstr ""
 
-#: gui/page_macro.c:193
+#: gui/page_macro.c:263
 msgid "Pick at least one action."
 msgstr ""
 
-#: gui/page_macro.c:197
+#: gui/page_macro.c:267
 msgid "Macro is too long to encode."
 msgstr ""
 
-#: gui/page_macro.c:200
+#: gui/page_macro.c:270
 msgid "Failed to write macro content."
 msgstr ""
 
-#: gui/page_macro.c:215
+#: gui/page_macro.c:285
 msgid "Macro saved to button."
 msgstr ""
 
-#: gui/page_macro.c:218
+#: gui/page_macro.c:288
 msgid "Failed to assign the macro to the button."
 msgstr ""
 
-#: gui/page_macro.c:238
+#: gui/page_macro.c:308
 msgid "Button reset to default."
 msgstr ""
 
-#: gui/page_macro.c:241
+#: gui/page_macro.c:311
 msgid "Failed to reset the button."
 msgstr ""
 
-#: gui/page_macro.c:250
+#: gui/page_macro.c:327
+msgid ""
+"Assign a short press-and-release sequence to one of the mouse's buttons."
+msgstr ""
+
+#: gui/page_macro.c:350
 msgid "Button"
 msgstr ""
 
-#: gui/page_macro.c:251
-msgid "Choose which button plays the macro below."
+#: gui/page_macro.c:351
+msgid "Choose which button plays the macro on the left."
 msgstr ""
 
-#: gui/page_macro.c:292
+#: gui/page_macro.c:392
 msgid ""
 "Actions are played in order, each as press-then-release, with the same delay "
-"between every step."
+"between every step. The icon on the left shows whether a step is a keyboard "
+"key or a mouse button."
 msgstr ""
 
-#: gui/page_macro.c:297
+#: gui/page_macro.c:397
 msgid "Add action"
 msgstr ""
 
-#: gui/page_macro.c:304
+#: gui/page_macro.c:404
 msgid ""
-"More than 3 actions needs a multi-packet write (up to 50 actions) --\n"
-"reconstructed from the official driver's own code rather than a wire\n"
-"capture, so test the button afterward to make sure it plays back\n"
-"correctly."
+"Long macros (more than 3 actions) are less tested -- try the button after "
+"saving to make sure it plays back correctly."
 msgstr ""
 
-#: gui/page_macro.c:322
+#: gui/page_macro.c:419
 msgid "Delay between steps"
 msgstr ""
 
-#: gui/page_macro.c:323
+#: gui/page_macro.c:420
 msgid "Milliseconds"
 msgstr ""
 
-#: gui/page_macro.c:330
+#: gui/page_macro.c:427
 msgid "Save to button"
 msgstr ""
 
-#: gui/page_macro.c:335
+#: gui/page_macro.c:432
 msgid "Reset button to default"
+msgstr ""
+
+#: gui/page_profiles.c:180
+msgid "Profile applied."
+msgstr ""
+
+#: gui/page_profiles.c:182
+msgid ""
+"Profile applied, but some settings failed to send -- check the connection."
+msgstr ""
+
+#: gui/page_profiles.c:212
+msgid "Failed to read that profile."
+msgstr ""
+
+#: gui/page_profiles.c:231
+msgid "Profile deleted."
+msgstr ""
+
+#: gui/page_profiles.c:278
+msgid "Constant"
+msgstr ""
+
+#: gui/page_profiles.c:283
+#, c-format
+msgid "%u DPI · %d Hz · %s"
+msgstr ""
+
+#: gui/page_profiles.c:294
+msgid "Apply"
+msgstr ""
+
+#: gui/page_profiles.c:321
+msgid "No saved profiles yet."
+msgstr ""
+
+#: gui/page_profiles.c:344
+msgid "Enter a profile name."
+msgstr ""
+
+#: gui/page_profiles.c:353
+msgid "Profile saved."
+msgstr ""
+
+#: gui/page_profiles.c:356
+msgid "Failed to save the profile."
+msgstr ""
+
+#: gui/page_profiles.c:366
+msgid "Save current settings as a profile"
+msgstr ""
+
+#: gui/page_profiles.c:367
+msgid ""
+"Captures DPI, DPI colours, report rate, the current lighting effect and "
+"button mapping. Macros aren't included -- see the Macro page."
+msgstr ""
+
+#: gui/page_profiles.c:369
+msgid "Profile name"
+msgstr ""
+
+#: gui/page_profiles.c:393
+msgid "Saved on this computer."
+msgstr ""
+
+#: gui/page_profiles.c:401
+msgid "Save current as profile"
+msgstr ""
+
+#: gui/page_settings.c:157
+#, c-format
+msgid "Mouse battery low: %d%%"
+msgstr ""
+
+#: gui/page_settings.c:180
+msgid "Failed to update the autostart entry."
+msgstr ""
+
+#: gui/page_settings.c:214
+msgid "Local app data cleared. Restart Ajazzy to see the effect."
+msgstr ""
+
+#: gui/page_settings.c:231
+msgid "Reset application data?"
+msgstr ""
+
+#: gui/page_settings.c:232
+msgid ""
+"Deletes every saved profile and lighting preset, and this settings page's "
+"choices. Does not touch the mouse itself."
+msgstr ""
+
+#: gui/page_settings.c:247
+msgid "Appearance"
+msgstr ""
+
+#: gui/page_settings.c:250
+msgid "Theme"
+msgstr ""
+
+#: gui/page_settings.c:251
+msgid "Follow system"
+msgstr ""
+
+#: gui/page_settings.c:251
+msgid "Light"
+msgstr ""
+
+#: gui/page_settings.c:251
+msgid "Dark"
+msgstr ""
+
+#: gui/page_settings.c:260
+msgid "Behaviour"
+msgstr ""
+
+#: gui/page_settings.c:263
+msgid "Start on login"
+msgstr ""
+
+#: gui/page_settings.c:264
+msgid "Launches Ajazzy minimised to the tray when you log in."
+msgstr ""
+
+#: gui/page_settings.c:270
+msgid "Low battery warning"
+msgstr ""
+
+#: gui/page_settings.c:271
+msgid ""
+"Shows a one-time notification when the mouse drops below 20% and isn't "
+"charging."
+msgstr ""
+
+#: gui/page_settings.c:278
+msgid "Local data"
+msgstr ""
+
+#: gui/page_settings.c:280
+msgid ""
+"Profiles and lighting presets are stored on this PC (~/.config/ajazzy), not "
+"on the mouse."
+msgstr ""
+
+#: gui/page_settings.c:283
+msgid "Reset application data"
+msgstr ""
+
+#: gui/page_settings.c:284
+msgid "Deletes all saved profiles and lighting presets."
+msgstr ""
+
+#: gui/page_settings.c:294
+msgid "About"
+msgstr ""
+
+#: gui/page_settings.c:297
+msgid "Version"
+msgstr ""
+
+#: gui/page_settings.c:302
+msgid "Source code and releases"
 msgstr ""
 
 #: gui/tray.c:105

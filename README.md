@@ -10,7 +10,7 @@ It was built and tested against an **AJ179 V2 MAX** (dongle `249A:5C2F`, dev_id 
 
 ## Installing
 
-Once this repo is on GitHub, every push to `main` builds and publishes a release automatically (see `.github/workflows/release.yml`) — a `.deb`, an `.rpm`, and two standalone tarballs (CLI-only, GUI-only), each with the install command spelled out in that release's notes. Until then, see [Building](#building) below.
+Every push to `main` builds and publishes a [release](https://github.com/Geovane2dd/Ajazzy/releases) automatically (see `.github/workflows/release.yml`) — a `.deb`, an `.rpm`, and two standalone tarballs (CLI-only, GUI-only), each with the install command spelled out in that release's notes. To build from source instead, see [Building](#building) below.
 
 ## What works
 
@@ -27,14 +27,14 @@ Once this repo is on GitHub, every push to `main` builds and publishes a release
 | "Wake mouse on motion" toggle | Confirmed to change *something* — see note below |
 | Button remap — media/browser keys, keyboard keys | Confirmed |
 | Button remap — rapid-fire/auto-click | Confirmed |
-| Macros — up to 3 key/button press+release actions per button, with delay | Confirmed |
+| Macros — up to 50 key/button press+release actions per button, with delay | Confirmed |
 | Reset buttons to factory default (all, or one at a time) | Confirmed |
 | Multiple RGB effect *names* beyond "off"/"rainbow"/"constant" | **Not distinguished yet** — see below |
 
 A few notes on the rougher edges:
 
-- **Battery** isn't a calibrated percentage. The original driver shows a 4-bar icon, not a number, so this reads the same raw sensor byte and buckets it into 4 tiers. Only the top tier is anchored to a real data point; the rest are an evenly-spaced guess.
-- **Macros** are stored on the device, not played back in software — up to 3 press/release actions per button, a limit of the single-packet write (longer macros need a multi-packet write that isn't implemented yet). See [`docs/reverse-engineering.md`](docs/reverse-engineering.md#macros) for how the wire format was figured out.
+- **Battery** reads back as a real 0-100% value (confirmed against the mouse's own status pushes), not the 4-bar guess the original driver's UI shows. The GUI also shows charging state, since that changes what the number means.
+- **Macros** are stored on the device, not played back in software. Up to 3 actions fit in a single report; longer ones (up to 50) use a chunked multi-packet write reconstructed from the official driver's code rather than a wire capture, so test a long macro on the button after saving it. See [`docs/reverse-engineering.md`](docs/reverse-engineering.md#macros) for how the wire format was figured out.
 - **Report rate** and **DPI stage** are independent commands. `rate get` / the GUI read back the real current rate.
 - **Sensor & power** (`ajazzyctl power get/sleep/light-idle-off`, `liftoff set`) all live in one 32-byte report — changing one preserves the others. Lift-off distance might double as a "wake mouse on motion" toggle; a capture of that control landed on the same byte and it's not clear yet whether that's really the same setting.
 - **RGB** supports off/rainbow/constant, both set and read back (`rgb rainbow`/`rgb constant`/`rgb off`/`rgb get`). Other effect names from the original driver aren't distinguished on the wire — they may just not be real, separate commands.

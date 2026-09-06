@@ -284,6 +284,10 @@ static gboolean buttons_fetch_apply(gpointer user_data)
         describe_key_slot(slot, desc, sizeof(desc));
         adw_action_row_set_subtitle(ADW_ACTION_ROW(app->key_dropdown[i]), desc);
 
+        /* Home dashboard's compact readout -- see App::home_key_lbl. */
+        if (app->home_key_lbl[i])
+            gtk_label_set_text(app->home_key_lbl[i], idx >= 0 ? key_functions[idx].label : desc);
+
         if (slot[0] == 0x30 && app->key_fire_interval[i] && app->key_fire_number[i]) {
             adw_spin_row_set_value(app->key_fire_interval[i], slot[1]);
             adw_spin_row_set_value(app->key_fire_number[i], slot[2]);
@@ -321,6 +325,36 @@ void refresh_buttons(App *app)
         return;
     app->buttons_fetch_pending = TRUE;
     g_thread_unref(g_thread_new("ajazzy-buttons-fetch", buttons_fetch_thread, app));
+}
+
+/* Public wrapper for gui/page_profiles.c -- see the declaration in
+ * app.h. `raw` is exactly the 3-byte-per-slot wire format
+ * AJAZZ_QUERY_KEY_TABLE's payload uses (marker/param1/param2), which is
+ * also exactly what a profile save captures (see page_profiles.c) -- so
+ * applying it is just: read the current table (to get a valid base
+ * report), overwrite its payload with the saved bytes, and reuse
+ * ajazz_build_key_table_from_query() to turn that into a SET command,
+ * the same helper on_keys_apply() above uses. Re-reads the mouse
+ * afterward so the dropdowns/Home readout reflect what's actually
+ * there. */
+gboolean buttons_apply_profile_table(App *app, const uint8_t raw[AJAZZ_KEY_SLOTS][3])
+{
+    if (!ensure_connected(app))
+        return FALSE;
+
+    ajazz_report_t reply;
+    if (ajazz_query_mt(app, AJAZZ_QUERY_KEY_TABLE, &reply, 1000) != 0)
+        return FALSE;
+
+    for (int i = 0; i < AJAZZ_KEY_SLOTS; i++)
+        memcpy(&reply.payload[i * 3], raw[i], 3);
+
+    ajazz_report_t req;
+    ajazz_build_key_table_from_query(&req, &reply);
+    gboolean ok = (ajazz_send_and_wait_mt(app, &req, 1000) == 0);
+    if (ok)
+        refresh_buttons_delayed(app);
+    return ok;
 }
 
 /* Traces the mouse-body silhouette into `cr`'s current path, as a
@@ -420,8 +454,17 @@ static void draw_mouse_outline(GtkDrawingArea *area, cairo_t *cr, int width, int
     cairo_stroke(cr);
 }
 
+/* Per-slot detail panel wrappers, and the left-column selector list --
+ * both file-static since they're only ever built once (build_buttons_page()
+ * runs exactly once per process) and only referenced from within this
+ * file, unlike the widgets in App that other pages/callbacks reach into. */
+static GtkWidget *g_key_detail_box[AJAZZ_KEY_SLOTS];
+static GtkListBox *g_key_listbox;
+static int g_key_selected_slot;
+
 static void select_key_marker(App *app, int slot)
 {
+    g_key_selected_slot = slot;
     for (int i = 0; i < AJAZZ_KEY_SLOTS; i++) {
         gboolean sel = (i == slot);
         if (app->key_marker[i]) {
@@ -432,6 +475,13 @@ static void select_key_marker(App *app, int slot)
             if (sel) gtk_widget_add_css_class(app->key_row[i], "accent");
             else gtk_widget_remove_css_class(app->key_row[i], "accent");
         }
+        if (g_key_detail_box[i])
+            gtk_widget_set_visible(g_key_detail_box[i], sel);
+    }
+    if (g_key_listbox) {
+        GtkListBoxRow *row = gtk_list_box_get_row_at_index(g_key_listbox, slot);
+        if (row)
+            gtk_list_box_select_row(g_key_listbox, row);
     }
     if (app->key_dropdown[slot])
         gtk_widget_grab_focus(GTK_WIDGET(app->key_dropdown[slot]));
@@ -444,6 +494,15 @@ static void on_marker_clicked(GtkButton *btn, gpointer user_data)
     App *app = data[0];
     int slot = GPOINTER_TO_INT(data[1]);
     select_key_marker(app, slot);
+}
+
+static void on_key_listbox_row_selected(GtkListBox *box, GtkListBoxRow *row, gpointer user_data)
+{
+    (void)box;
+    App *app = user_data;
+    if (!row)
+        return;
+    select_key_marker(app, gtk_list_box_row_get_index(row));
 }
 
 /* Roughly where each button sits on a typical AJAZZ mouse: left/right
@@ -488,6 +547,33 @@ static GtkWidget *build_mouse_diagram(App *app)
     return overlay;
 }
 
+/* Popular-function tile: selects the dropdown entry whose label matches
+ * `label` for the currently-selected button slot, then immediately
+ * applies -- see g_key_selected_slot (kept in sync by select_key_marker())
+ * and on_keys_apply() above. If the selected slot is left/right click
+ * (not remappable) or has no matching entry, this is a no-op with a toast
+ * rather than silently doing nothing. */
+static void on_popular_function_clicked(GtkButton *btn, gpointer user_data)
+{
+    (void)btn;
+    App *app = ((gpointer *)user_data)[0];
+    const char *label = ((gpointer *)user_data)[1];
+    int slot = g_key_selected_slot;
+
+    if (!app->key_dropdown[slot]) {
+        toast(app, _("This button can't be remapped."));
+        return;
+    }
+    for (size_t i = 0; i < N_KEY_FUNCTIONS; i++) {
+        if (strcmp(key_functions[i].label, label) == 0) {
+            adw_combo_row_set_selected(app->key_dropdown[slot], (guint)i);
+            on_keys_apply(NULL, app);
+            return;
+        }
+    }
+    toast(app, _("That function isn't available on this button."));
+}
+
 GtkWidget *build_buttons_page(App *app)
 {
     GtkWidget *page = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 16);
@@ -499,41 +585,103 @@ GtkWidget *build_buttons_page(App *app)
     GtkWidget *prefs = adw_preferences_page_new();
     gtk_widget_set_hexpand(prefs, TRUE);
 
+    /* header: title + subtitle + Reset all, top-right */
+    AdwPreferencesGroup *header_group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
+    GtkWidget *header_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+    GtkWidget *header_text = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+    GtkWidget *header_title = gtk_label_new(_("Buttons"));
+    gtk_widget_add_css_class(header_title, "title-2");
+    gtk_widget_set_halign(header_title, GTK_ALIGN_START);
+    GtkWidget *header_sub = gtk_label_new(_("Pick a button from the list (or click a number on the mouse) to change its function."));
+    gtk_widget_add_css_class(header_sub, "dim-label");
+    gtk_widget_set_halign(header_sub, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(header_text), header_title);
+    gtk_box_append(GTK_BOX(header_text), header_sub);
+    gtk_widget_set_hexpand(header_text, TRUE);
+    gtk_box_append(GTK_BOX(header_row), header_text);
+
+    GtkWidget *header_reset = gtk_button_new_with_label(_("Reset all to default"));
+    gtk_widget_add_css_class(header_reset, "destructive-action");
+    gtk_widget_add_css_class(header_reset, "pill");
+    gtk_widget_set_valign(header_reset, GTK_ALIGN_START);
+    g_signal_connect(header_reset, "clicked", G_CALLBACK(on_keys_reset_clicked), app);
+    gtk_box_append(GTK_BOX(header_row), header_reset);
+    adw_preferences_group_add(header_group, header_row);
+    adw_preferences_page_add(ADW_PREFERENCES_PAGE(prefs), header_group);
+
     AdwPreferencesGroup *group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
-    adw_preferences_group_set_title(group, _("Button mapping"));
-    adw_preferences_group_set_description(group,
-        _("Pick a new function for each button, or click a number on the mouse to jump there."));
 
     const char *names[MAX_KEY_FUNCTIONS + 1];
     for (size_t i = 0; i < N_KEY_FUNCTIONS; i++)
         names[i] = key_functions[i].label;
     names[N_KEY_FUNCTIONS] = NULL;
 
+    GtkWidget *mapping_card = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+    gtk_widget_add_css_class(mapping_card, "ajazz-card");
+
+    /* left column: one row per physical button */
+    GtkWidget *listbox = gtk_list_box_new();
+    gtk_widget_add_css_class(listbox, "boxed-list");
+    gtk_widget_set_size_request(listbox, 200, -1);
+    g_key_listbox = GTK_LIST_BOX(listbox);
     for (int i = 0; i < AJAZZ_KEY_SLOTS; i++) {
+        GtkWidget *row = gtk_list_box_row_new();
+        GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+        gtk_widget_set_margin_top(box, 8);
+        gtk_widget_set_margin_bottom(box, 8);
+        gtk_widget_set_margin_start(box, 10);
+        gtk_widget_set_margin_end(box, 10);
         char title[48];
         snprintf(title, sizeof(title), _("Button %d"), i + 1);
+        GtkWidget *title_lbl = gtk_label_new(title);
+        gtk_widget_set_halign(title_lbl, GTK_ALIGN_START);
+        GtkWidget *sub_lbl = gtk_label_new(gettext(default_button_names[i]));
+        gtk_widget_add_css_class(sub_lbl, "dim-label");
+        gtk_widget_add_css_class(sub_lbl, "caption");
+        gtk_widget_set_halign(sub_lbl, GTK_ALIGN_START);
+        gtk_box_append(GTK_BOX(box), title_lbl);
+        gtk_box_append(GTK_BOX(box), sub_lbl);
+        gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), box);
+        gtk_list_box_append(GTK_LIST_BOX(listbox), row);
+    }
+    g_signal_connect(listbox, "row-selected", G_CALLBACK(on_key_listbox_row_selected), app);
+    gtk_box_append(GTK_BOX(mapping_card), listbox);
+
+    /* right column: detail panel, one stacked box per slot, only the
+     * selected one visible (see select_key_marker()) */
+    GtkWidget *detail_stack = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_widget_set_hexpand(detail_stack, TRUE);
+
+    for (int i = 0; i < AJAZZ_KEY_SLOTS; i++) {
+        GtkWidget *detail_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+        gtk_widget_set_visible(detail_box, FALSE);
+        g_key_detail_box[i] = detail_box;
 
         if (key_slot_is_lockable(i)) {
+            AdwPreferencesGroup *slot_group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
             AdwActionRow *row = ADW_ACTION_ROW(adw_action_row_new());
-            adw_preferences_row_set_title(ADW_PREFERENCES_ROW(row), title);
-            adw_action_row_set_subtitle(row, gettext(default_button_names[i]));
+            adw_preferences_row_set_title(ADW_PREFERENCES_ROW(row), gettext(default_button_names[i]));
             GtkWidget *fixed = gtk_label_new(_("Fixed by the manufacturer"));
             gtk_widget_add_css_class(fixed, "dim-label");
             adw_action_row_add_suffix(row, fixed);
-            adw_preferences_group_add(group, GTK_WIDGET(row));
+            adw_preferences_group_add(slot_group, GTK_WIDGET(row));
+            gtk_box_append(GTK_BOX(detail_box), GTK_WIDGET(slot_group));
             app->key_row[i] = GTK_WIDGET(row);
             app->key_dropdown[i] = NULL;
             app->key_fire_box[i] = NULL;
+            gtk_box_append(GTK_BOX(detail_stack), detail_box);
             continue;
         }
 
+        AdwPreferencesGroup *slot_group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
+
         AdwComboRow *dd = ADW_COMBO_ROW(adw_combo_row_new());
-        adw_preferences_row_set_title(ADW_PREFERENCES_ROW(dd), title);
+        adw_preferences_row_set_title(ADW_PREFERENCES_ROW(dd), _("Function"));
         adw_action_row_set_subtitle(ADW_ACTION_ROW(dd), gettext(default_button_names[i]));
         adw_combo_row_set_model(dd, G_LIST_MODEL(gtk_string_list_new(names)));
         adw_combo_row_set_selected(dd, 0);
         app->key_dropdown[i] = dd;
-        adw_preferences_group_add(group, GTK_WIDGET(dd));
+        adw_preferences_group_add(slot_group, GTK_WIDGET(dd));
         app->key_row[i] = GTK_WIDGET(dd);
 
         AdwActionRow *interval_row = ADW_ACTION_ROW(adw_action_row_new());
@@ -556,31 +704,58 @@ GtkWidget *build_buttons_page(App *app)
         gtk_box_append(GTK_BOX(fire_box), GTK_WIDGET(interval_row));
         gtk_box_append(GTK_BOX(fire_box), GTK_WIDGET(number_row));
         gtk_widget_set_visible(fire_box, FALSE);
-        adw_preferences_group_add(group, fire_box);
+        adw_preferences_group_add(slot_group, fire_box);
         app->key_fire_box[i] = fire_box;
+
+        gtk_box_append(GTK_BOX(detail_box), GTK_WIDGET(slot_group));
+        gtk_box_append(GTK_BOX(detail_stack), detail_box);
 
         gpointer *data = g_new(gpointer, 2);
         data[0] = app;
         data[1] = GINT_TO_POINTER(i);
         g_signal_connect_data(dd, "notify::selected", G_CALLBACK(on_key_dropdown_changed), data, free_closure_data, 0);
     }
+    gtk_box_append(GTK_BOX(mapping_card), detail_stack);
+    adw_preferences_group_add(group, mapping_card);
     adw_preferences_page_add(ADW_PREFERENCES_PAGE(prefs), group);
 
     AdwPreferencesGroup *actions_group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
-    GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-    GtkWidget *btn_apply = gtk_button_new_with_label(_("Apply remap"));
+    GtkWidget *btn_apply = gtk_button_new_with_label(_("Apply to mouse"));
     gtk_widget_add_css_class(btn_apply, "suggested-action");
     gtk_widget_add_css_class(btn_apply, "pill");
     gtk_widget_add_css_class(btn_apply, "ajazz-cta");
+    gtk_widget_set_hexpand(btn_apply, TRUE);
     g_signal_connect(btn_apply, "clicked", G_CALLBACK(on_keys_apply), app);
-    GtkWidget *btn_reset = gtk_button_new_with_label(_("Reset all"));
-    gtk_widget_add_css_class(btn_reset, "destructive-action");
-    gtk_widget_add_css_class(btn_reset, "pill");
-    g_signal_connect(btn_reset, "clicked", G_CALLBACK(on_keys_reset_clicked), app);
-    gtk_box_append(GTK_BOX(actions), btn_apply);
-    gtk_box_append(GTK_BOX(actions), btn_reset);
-    adw_preferences_group_add(actions_group, actions);
+    adw_preferences_group_add(actions_group, btn_apply);
     adw_preferences_page_add(ADW_PREFERENCES_PAGE(prefs), actions_group);
+
+    /* Popular functions: one-click shortcuts for the selected button,
+     * restricted to function kinds this protocol actually has (consumer
+     * codes and rapid-fire -- see key_functions[] above). Each tile picks
+     * the matching dropdown entry for whichever slot is currently
+     * selected and immediately applies, same as picking it by hand and
+     * clicking "Apply to mouse". */
+    AdwPreferencesGroup *popular_group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
+    adw_preferences_group_set_title(popular_group, _("Popular functions"));
+    adw_preferences_group_set_description(popular_group, _("Applies to whichever button is selected above."));
+    GtkWidget *popular_card = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_add_css_class(popular_card, "ajazz-card");
+    static const char *popular_labels[] = {
+        N_("Mute"), N_("Play / Pause"), N_("Volume up"), N_("Volume down"), N_("Rapid-fire (auto-click)"),
+    };
+    for (guint i = 0; i < G_N_ELEMENTS(popular_labels); i++) {
+        const char *tr_label = gettext(popular_labels[i]);
+        GtkWidget *tile = gtk_button_new_with_label(tr_label);
+        gtk_widget_add_css_class(tile, "flat");
+        gtk_widget_set_hexpand(tile, TRUE);
+        gpointer *data = g_new(gpointer, 2);
+        data[0] = app;
+        data[1] = (gpointer)tr_label;
+        g_signal_connect_data(tile, "clicked", G_CALLBACK(on_popular_function_clicked), data, free_closure_data, 0);
+        gtk_box_append(GTK_BOX(popular_card), tile);
+    }
+    adw_preferences_group_add(popular_group, popular_card);
+    adw_preferences_page_add(ADW_PREFERENCES_PAGE(prefs), popular_group);
 
     GtkWidget *diagram_frame = gtk_frame_new(NULL);
     gtk_widget_add_css_class(diagram_frame, "card");
@@ -596,5 +771,7 @@ GtkWidget *build_buttons_page(App *app)
 
     gtk_box_append(GTK_BOX(page), prefs);
     gtk_box_append(GTK_BOX(page), diagram_frame);
+
+    select_key_marker(app, 0);
     return page;
 }

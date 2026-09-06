@@ -7,6 +7,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <poll.h>
+#include <time.h>
 #include <linux/hidraw.h>
 #include <sys/ioctl.h>
 
@@ -214,21 +215,64 @@ void ajazz_close(ajazz_dev_t *dev)
     }
 }
 
+/* write()/read() on a hidraw node are documented to always transfer the
+ * whole report in one call or fail outright (there's no partial-report
+ * short write/read on this device class) -- the retry here is only for
+ * EINTR, a signal landing mid-syscall, which is routine and not a
+ * reason to give up. */
 int ajazz_send(ajazz_dev_t *dev, const ajazz_report_t *r)
 {
-    ssize_t n = write(dev->fd, r, AJAZZ_REPORT_LEN);
+    ssize_t n;
+    do {
+        n = write(dev->fd, r, AJAZZ_REPORT_LEN);
+    } while (n < 0 && errno == EINTR);
     return (n == AJAZZ_REPORT_LEN) ? 0 : -1;
+}
+
+static long long now_ms(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (long long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
 
 int ajazz_recv(ajazz_dev_t *dev, ajazz_report_t *r, int timeout_ms)
 {
     struct pollfd pfd = { .fd = dev->fd, .events = POLLIN };
-    int rc = poll(&pfd, 1, timeout_ms);
+    int rc;
+    do {
+        rc = poll(&pfd, 1, timeout_ms);
+    } while (rc < 0 && errno == EINTR);
     if (rc <= 0)
         return -1;
 
-    ssize_t n = read(dev->fd, r, AJAZZ_REPORT_LEN);
+    ssize_t n;
+    do {
+        n = read(dev->fd, r, AJAZZ_REPORT_LEN);
+    } while (n < 0 && errno == EINTR);
     return (n == AJAZZ_REPORT_LEN) ? 0 : -1;
+}
+
+/* Drains reports until one matches `want_family`, giving up once
+ * `timeout_ms` total has elapsed -- not `timeout_ms` per report. Without
+ * tracking a deadline across iterations, a caller passing e.g. 1000ms
+ * while the device keeps interleaving unrelated reports (cursor
+ * movement shares this endpoint with query replies, see the callers
+ * below) would have each ajazz_recv() call re-armed with the full
+ * budget, so the whole wait could run far longer than the timeout the
+ * caller asked for. */
+static int recv_until(ajazz_dev_t *dev, ajazz_report_t *reply, uint8_t want_family, int timeout_ms)
+{
+    long long deadline = now_ms() + timeout_ms;
+    for (;;) {
+        long long remaining = deadline - now_ms();
+        if (remaining <= 0)
+            return -1;
+        if (ajazz_recv(dev, reply, (int)remaining) != 0)
+            return -1;
+        if (reply->family == want_family)
+            return 0;
+    }
 }
 
 int ajazz_query(ajazz_dev_t *dev, uint8_t query_id, ajazz_report_t *reply, int timeout_ms)
@@ -239,15 +283,7 @@ int ajazz_query(ajazz_dev_t *dev, uint8_t query_id, ajazz_report_t *reply, int t
     if (ajazz_send(dev, &req) != 0)
         return -1;
 
-    /* the interrupt IN endpoint also carries mouse movement reports on a
-     * different report id, so drain until we see our query id echoed back
-     * or we time out. */
-    for (;;) {
-        if (ajazz_recv(dev, reply, timeout_ms) != 0)
-            return -1;
-        if (reply->family == query_id)
-            return 0;
-    }
+    return recv_until(dev, reply, query_id, timeout_ms);
 }
 
 int ajazz_send_and_wait(ajazz_dev_t *dev, const ajazz_report_t *r, int timeout_ms)
@@ -257,12 +293,7 @@ int ajazz_send_and_wait(ajazz_dev_t *dev, const ajazz_report_t *r, int timeout_m
     if (ajazz_send(dev, r) != 0)
         return -1;
 
-    for (;;) {
-        if (ajazz_recv(dev, &reply, timeout_ms) != 0)
-            return -1;
-        if (reply.family == r->family)
-            return 0;
-    }
+    return recv_until(dev, &reply, r->family, timeout_ms);
 }
 
 void ajazz_warn_if_unconfirmed(const ajazz_dev_t *dev, uint32_t cap, const char *feature_name)

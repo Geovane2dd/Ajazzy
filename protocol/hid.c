@@ -190,9 +190,22 @@ void ajazz_build_key_table_from_query(ajazz_report_t *out, const ajazz_report_t 
     ajazz_finalize(out);
 }
 
+/* Every ajazz_key_slot_set_*()/reset_default() below writes 3 bytes at
+ * payload[slot*3] -- with AJAZZ_KEY_SLOTS callers this stays well
+ * inside the 27-byte payload, but nothing enforced that if a bad slot
+ * ever reached here (a typo'd loop bound, a future caller), so bounds-
+ * check it explicitly rather than trust every call site forever. */
+static int key_slot_offset(int slot)
+{
+    if (slot < 0 || slot >= AJAZZ_KEY_SLOTS)
+        return -1;
+    return slot * 3;
+}
+
 void ajazz_key_slot_set_consumer(ajazz_report_t *r, int slot, uint16_t consumer_usage)
 {
-    int off = slot * 3;
+    int off = key_slot_offset(slot);
+    if (off < 0) return;
     r->payload[off + 0] = 0x80;
     r->payload[off + 1] = (uint8_t)(consumer_usage & 0xFF);
     r->payload[off + 2] = (uint8_t)(consumer_usage >> 8);
@@ -201,7 +214,8 @@ void ajazz_key_slot_set_consumer(ajazz_report_t *r, int slot, uint16_t consumer_
 
 void ajazz_key_slot_set_keyboard(ajazz_report_t *r, int slot, uint8_t modifiers, uint8_t keycode)
 {
-    int off = slot * 3;
+    int off = key_slot_offset(slot);
+    if (off < 0) return;
     r->payload[off + 0] = 0x70;
     r->payload[off + 1] = modifiers;
     r->payload[off + 2] = keycode;
@@ -210,7 +224,8 @@ void ajazz_key_slot_set_keyboard(ajazz_report_t *r, int slot, uint8_t modifiers,
 
 void ajazz_key_slot_set_fire(ajazz_report_t *r, int slot, uint8_t interval, uint8_t number)
 {
-    int off = slot * 3;
+    int off = key_slot_offset(slot);
+    if (off < 0) return;
     r->payload[off + 0] = 0x30;
     r->payload[off + 1] = interval;
     r->payload[off + 2] = number;
@@ -219,7 +234,8 @@ void ajazz_key_slot_set_fire(ajazz_report_t *r, int slot, uint8_t interval, uint
 
 void ajazz_key_slot_reset_default(ajazz_report_t *r, int slot)
 {
-    int off = slot * 3;
+    int off = key_slot_offset(slot);
+    if (off < 0) return;
     r->payload[off + 0] = 0x10;
     r->payload[off + 1] = (uint8_t)(1u << slot);
     r->payload[off + 2] = 0x00;
@@ -296,7 +312,8 @@ int ajazz_build_macro_content_chunked(ajazz_report_t *out, int max_out, const aj
 
 void ajazz_key_slot_set_macro(ajazz_report_t *r, int slot)
 {
-    int off = slot * 3;
+    int off = key_slot_offset(slot);
+    if (off < 0) return;
     r->payload[off + 0] = 0x90;
     r->payload[off + 1] = 0x23;
     r->payload[off + 2] = 0x01;
@@ -351,8 +368,8 @@ int ajazz_parse_led_mode(const ajazz_report_t *r, ajazz_led_state_t *out)
 
 const char *ajazz_battery_label(uint8_t raw)
 {
-    if (raw >= 75) return "Cheia (4/4 barras)";
-    if (raw >= 50) return "Boa (3/4 barras)";
-    if (raw >= 25) return "Media (2/4 barras)";
-    return "Baixa (1/4 barras)";
+    if (raw >= 75) return "Full (4/4 bars)";
+    if (raw >= 50) return "Good (3/4 bars)";
+    if (raw >= 25) return "Medium (2/4 bars)";
+    return "Low (1/4 bars)";
 }

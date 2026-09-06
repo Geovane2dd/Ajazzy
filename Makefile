@@ -28,8 +28,8 @@ endif
 $(CLI_BIN): cli/main.o $(CORE_OBJS)
 	$(CC) $(CFLAGS) -o $@ $^
 
-GUI_SRCS = gui/main.c gui/page_home.c gui/page_mouse.c gui/page_lighting.c gui/page_buttons.c gui/page_macro.c gui/tray.c
-GUI_HDRS = gui/app.h gui/tray.h
+GUI_SRCS = gui/main.c gui/page_home.c gui/page_mouse.c gui/page_lighting.c gui/page_buttons.c gui/page_macro.c gui/page_profiles.c gui/page_settings.c gui/jsonutil.c gui/tray.c
+GUI_HDRS = gui/app.h gui/tray.h gui/jsonutil.h
 
 $(GUI_BIN): $(GUI_SRCS) $(GUI_HDRS) $(CORE_OBJS)
 	$(CC) $(CFLAGS) $(GUI_CFLAGS) -o $@ $(GUI_SRCS) $(CORE_OBJS) $(GUI_LIBS)
