@@ -21,6 +21,7 @@ mkdir -p "$ROOT/DEBIAN" \
          "$ROOT/usr/share/applications" \
          "$ROOT/usr/share/icons/hicolor/scalable/apps" \
          "$ROOT/usr/share/locale/pt_BR/LC_MESSAGES" \
+         "$ROOT/usr/share/ajazzy/images" \
          "$ROOT/lib/udev/rules.d"
 
 install -m755 ajazzyctl "$ROOT/usr/bin/ajazzyctl"
@@ -30,6 +31,7 @@ if [ -f ajazzy-gui ]; then
     install -m755 ajazzy-gui "$ROOT/usr/bin/ajazzy-gui"
     install -m644 gui/io.github.ajazzy.Gui.desktop "$ROOT/usr/share/applications/"
     install -m644 gui/icons/io.github.ajazzy.Gui.svg "$ROOT/usr/share/icons/hicolor/scalable/apps/"
+    install -m644 gui/images/*.png "$ROOT/usr/share/ajazzy/images/"
     DEPENDS="$DEPENDS, libgtk-4-1, libadwaita-1-0"
 fi
 
@@ -56,11 +58,11 @@ EOF
 cat > "$ROOT/DEBIAN/postinst" <<'EOF'
 #!/bin/sh
 set -e
-# picks up the new udev rule immediately instead of waiting for the
-# next reboot -- users still need to unplug/replug the mouse (or
-# re-login) for the permission change to actually take effect
+# apply the new udev rule right away, including to a mouse that is already
+# plugged in, so no replug or re-login is needed
 if command -v udevadm >/dev/null 2>&1; then
     udevadm control --reload-rules || true
+    udevadm trigger --subsystem-match=hidraw --action=change || true
 fi
 EOF
 chmod 755 "$ROOT/DEBIAN/postinst"

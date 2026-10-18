@@ -40,7 +40,7 @@ extern const uint8_t AJAZZ_DEFAULT_DPI_COLOR[AJAZZ_DPI_STAGES][3];
  * AJAZZ_FAM_MACRO uses on the SET side). Query IDs: 0x10 device info, 0x11
  * key table, 0x12 report rate, 0x13 DPI table (active stage included),
  * 0x14 per-DPI-stage LED colour table, 0x15 RGB effect state, 0x16
- * unidentified, 0x17 sensor/lift-off, 0x20 battery (unreliable, see below).
+ * sensor performance, 0x17 power/debounce, 0x20 battery (unreliable, see below).
  * There's no dedicated "active DPI stage" query; read it out of 0x13's
  * payload.
  *
@@ -80,8 +80,10 @@ enum {
                                        LED colour table, see below */
     AJAZZ_FAM_MISC         = 0x05, /* opcode 0x05 constant-light brightness,
                                        0x18 rainbow/breathing, 0x02 off */
-    AJAZZ_FAM_SENSOR       = 0x07, /* opcode 0x04: sleep timer, lift-off,
-                                       idle light-off, see below */
+    AJAZZ_FAM_SENSOR_PERF  = 0x06, /* opcode 0x05: lift-off, angle snap, ripple,
+                                       motion sync, see below */
+    AJAZZ_FAM_SENSOR       = 0x07, /* opcode 0x04: sleep timer, wake on motion,
+                                       light-off when idle, button debounce */
     AJAZZ_FAM_MACRO        = 0x08, /* opcode = length of used payload bytes */
     AJAZZ_FAM_KEY_TABLE    = 0x09, /* opcode 0x0f: button/key mapping table */
     AJAZZ_FAM_FACTORY_RESET = 0x0f, /* opcode 0x01, payload[0]=0xff: restores
@@ -118,7 +120,7 @@ void ajazz_parse_dpi_color_table(const ajazz_report_t *r, uint8_t colors[AJAZZ_D
  * (8/4/2/1 for 125/250/500/1000 Hz). Report rate only -- use
  * AJAZZ_FAM_DPI_TABLE for DPI stage, they're independent commands. */
 
-#define AJAZZ_KEY_SLOTS 5
+#define AJAZZ_KEY_SLOTS 6
 
 /* A macro fits in one report: 27-byte payload = 1 marker byte + up to 6
  * four-byte steps (24 bytes), 2 bytes spare. Longer macros need a
@@ -126,7 +128,7 @@ void ajazz_parse_dpi_color_table(const ajazz_report_t *r, uint8_t colors[AJAZZ_D
 #define AJAZZ_MACRO_MAX_STEPS 6
 
 /* Chunked writes for macros past AJAZZ_MACRO_MAX_STEPS. The byte stream
- * `[0x03, step0, step1, ...]` isn't step-aligned (a step's bytes can
+ * `[key_index, step0, step1, ...]` isn't step-aligned (a step's bytes can
  * straddle a chunk boundary) and gets split into AJAZZ_PAYLOAD_LEN-byte
  * pieces. Each chunk's mode byte is (chunk_index << 4) | total_chunks
  * (0-based, 1-based, so a 2-chunk transfer sends mode 0x02 then 0x12), and
@@ -204,11 +206,11 @@ enum {
     /* RGB effect state ("cmd get led mode"). Cycling through
      * off/rainbow/constant and reading back after each change gives a
      * stable opcode per effect: 0x01 off, 0x05 constant, 0x18 rainbow.
-     * See ajazz_parse_led_mode(). */
+     * See ajazz_parse_light(). */
     AJAZZ_QUERY_LED_MODE     = 0x15,
 
-    AJAZZ_QUERY_UNKNOWN16    = 0x16, /* not yet tied to a specific setting */
-    AJAZZ_QUERY_SENSOR       = 0x17,
+    AJAZZ_QUERY_SENSOR_PERF  = 0x16, /* lift-off, angle snap, ripple, motion sync */
+    AJAZZ_QUERY_POWER        = 0x17, /* sleep, wake-on-motion, idle light-off, debounce */
     AJAZZ_QUERY_BATTERY      = 0x20,
 };
 
@@ -221,46 +223,96 @@ void ajazz_build_query(ajazz_report_t *r, uint8_t query_id);
  * switch stage" command. To change only the active stage, query
  * AJAZZ_QUERY_DPI_TABLE, parse it with ajazz_parse_dpi_table(), and call
  * this back with the same dpi[] values and a new active_stage_0based. */
-void ajazz_build_set_dpi_table(ajazz_report_t *r, const uint16_t dpi[AJAZZ_DPI_STAGES], uint8_t active_stage_0based);
+void ajazz_build_set_dpi_table(ajazz_report_t *r, const uint16_t dpi[AJAZZ_DPI_STAGES], uint8_t active_stage_0based,
+    uint8_t count_nibble);
+/* payload[0]'s low nibble is the original driver's "DPI count" (the number
+ * of stages the DPI button cycles through). A freshly-reset V2 MAX reports 5
+ * here even though 6 values are stored, so callers should read-modify-write
+ * it (ajazz_dpi_table_count()) unless the user explicitly changes it. */
+int ajazz_dpi_table_count(const ajazz_report_t *r);
 void ajazz_build_set_report_rate(ajazz_report_t *r, uint8_t rate_index);
-void ajazz_build_set_rgb_rainbow(ajazz_report_t *r, uint8_t brightness, uint8_t speed);
+/*
+ * Lighting (family 0x05). Decompiled from the official driver; verified on
+ * an AJ179 V2 MAX by sending each mode and reading query 0x15 back.
+ *
+ * Every mode starts payload = [mode, (brightness << 4) | speed, ...]:
+ *
+ *   mode 0      opcode 0x02  off (readback opcode 0x01)
+ *   mode 1      opcode 0x03  "Flowing" (stream) -- brightness + speed only
+ *   mode 2      opcode 0x18  "Breathing": payload[2] = colour count (7),
+ *                            then 7 x RGB. Colours are cycled with a
+ *                            breathing fade, so 7 different colours give
+ *                            the multi-colour effect the old code called
+ *                            "rainbow", and 7 identical ones a single-colour
+ *                            breath.
+ *   mode 3      opcode 0x05  "Steady": payload[2..4] = RGB
+ *   mode 4      opcode 0x02  "Neon"            -- brightness + speed only
+ *   mode 5      opcode 0x02  "Colourful wave"  -- brightness + speed only
+ *
+ * brightness and speed are 0-4 (nibbles).
+ */
+enum {
+    AJAZZ_LIGHT_OFF       = 0,
+    AJAZZ_LIGHT_FLOW      = 1,
+    AJAZZ_LIGHT_BREATHING = 2,
+    AJAZZ_LIGHT_STEADY    = 3,
+    AJAZZ_LIGHT_NEON      = 4,
+    AJAZZ_LIGHT_WAVE      = 5,
+};
+#define AJAZZ_LIGHT_PALETTE 7
 
-/* Constant/solid colour, no animation. payload = [0x03, (brightness<<4)|0x02,
- * 0xff], the same 0-4 brightness scale as rainbow. */
-void ajazz_build_set_rgb_constant(ajazz_report_t *r, uint8_t brightness);
+void ajazz_build_set_light_simple(ajazz_report_t *r, uint8_t mode, uint8_t brightness, uint8_t speed);
+void ajazz_build_set_light_steady(ajazz_report_t *r, uint8_t brightness, uint8_t speed, const uint8_t rgb[3]);
+void ajazz_build_set_light_breathing(ajazz_report_t *r, uint8_t brightness, uint8_t speed,
+    const uint8_t palette[AJAZZ_LIGHT_PALETTE][3]);
+/* Default 7-colour palette (red, green, blue, cyan, yellow, magenta, white). */
+extern const uint8_t AJAZZ_LIGHT_DEFAULT_PALETTE[AJAZZ_LIGHT_PALETTE][3];
 
 void ajazz_build_set_rgb_off(ajazz_report_t *r);
 
-/* AJAZZ_FAM_SENSOR (0x07 opcode 0x04) packs four unrelated settings into
- * one report; isolated wire captures each showed exactly one byte
- * changing:
+typedef struct {
+    uint8_t mode;       /* AJAZZ_LIGHT_* */
+    uint8_t brightness; /* 0-4 */
+    uint8_t speed;      /* 0-4 */
+    uint8_t rgb[3];     /* steady colour */
+    uint8_t palette[AJAZZ_LIGHT_PALETTE][3]; /* breathing colours */
+} ajazz_light_state_t;
+
+/* Decodes a query 0x15 reply. Returns 0 on success, -1 for an unknown shape. */
+int ajazz_parse_light(const ajazz_report_t *r, ajazz_light_state_t *out);
+
+/*
+ * Power / button settings (family 0x07, opcode 0x04; query 0x17).
+ * Decompiled: payload = [sleep, move_wakeup, move_closelight, button_respondtime].
  *
- *   payload[0] = auto-sleep timer, in units of 10 seconds. Matches all 8
- *                values in the original driver's sleep dropdown
- *                (10s/30s/1m/2m/5m/10m/20m/30m -> 1/3/6/12/30/60/120/180).
- *   payload[1] = lift-off distance (0/1 -> 1mm/2mm), but a separate
- *                capture of the "wake mouse on motion" toggle also landed
- *                on this same byte. Not resolved whether that's really
- *                the same setting or two controls sharing a byte.
- *   payload[2] = "turn light off when idle" (0/1).
- *   payload[3] = 0x08, constant in every capture so far.
+ *   payload[0] auto-sleep, in units of 10 seconds
+ *   payload[1] wake the mouse on movement (0/1)
+ *   payload[2] turn the light off when the mouse is idle (0/1)
+ *   payload[3] button debounce in milliseconds (factory 8)
  *
- * Writing one without first reading the others silently resets them, the
- * same hazard as the key table. Use ajazz_build_sensor_from_query()
- * together with the setters below rather than building a report from
- * scratch. */
-void ajazz_build_sensor_from_query(ajazz_report_t *out, const ajazz_report_t *query_reply);
+ * Earlier versions of this project treated payload[1] as "lift-off
+ * distance" -- it is the wake-on-motion flag; lift-off lives in family 0x06.
+ * Writes are still read-modify-write so unknown bytes survive.
+ */
+void ajazz_build_power_from_query(ajazz_report_t *out, const ajazz_report_t *query_reply);
+void ajazz_power_set_sleep_seconds(ajazz_report_t *r, uint16_t seconds);
+void ajazz_power_set_wake_on_motion(ajazz_report_t *r, uint8_t enabled);
+void ajazz_power_set_light_idle_off(ajazz_report_t *r, uint8_t enabled);
+void ajazz_power_set_debounce_ms(ajazz_report_t *r, uint8_t ms);
 
-/* Rounds `seconds` down to the nearest 10 and clamps to the payload byte's
- * range (0-2550s). The original driver's UI only goes up to 30 minutes. */
-void ajazz_sensor_set_sleep_seconds(ajazz_report_t *r, uint16_t seconds);
-
-/* May also read as "wake mouse on motion" on the device side; see the
- * comment on ajazz_build_sensor_from_query() above. */
-void ajazz_sensor_set_liftoff(ajazz_report_t *r, uint8_t level);
-
-/* Turns the light off once the mouse has been idle -- 0/1. */
-void ajazz_sensor_set_light_idle_off(ajazz_report_t *r, uint8_t enabled);
+/*
+ * Sensor performance (family 0x06, opcode 0x05; query 0x16).
+ * payload = [lift_off, angle_snap, ripple_control, motion_sync].
+ * lift_off is 1 or 2 (mm). Names are the official driver's checkboxes.
+ */
+typedef struct {
+    uint8_t lift_off;      /* 1 or 2 mm */
+    uint8_t angle_snap;
+    uint8_t ripple_control;
+    uint8_t motion_sync;
+} ajazz_sensor_t;
+void ajazz_parse_sensor_perf(const ajazz_report_t *r, ajazz_sensor_t *out);
+void ajazz_build_set_sensor_perf(ajazz_report_t *r, const ajazz_sensor_t *s);
 
 /* Resets the key table to factory defaults. Confirmed against real
  * hardware: a button that had been custom-mapped away from its default
@@ -290,6 +342,45 @@ void ajazz_key_slot_set_consumer(ajazz_report_t *r, int slot, uint16_t consumer_
  * usage (e.g. 0x04 = 'A'). */
 void ajazz_key_slot_set_keyboard(ajazz_report_t *r, int slot, uint8_t modifiers, uint8_t keycode);
 
+/* Remaps button `slot` to one of the mouse's own built-in functions (the
+ * official driver's "Mouse Features" list). Encodings come from its
+ * button-table writer, not from captures; the ones marked "unverified" have
+ * not been physically exercised. */
+typedef enum {
+    AJAZZ_BTN_LEFT = 1,      /* [0x10, 0x01] */
+    AJAZZ_BTN_MIDDLE,        /* [0x10, 0x04] */
+    AJAZZ_BTN_RIGHT,         /* [0x10, 0x02] */
+    AJAZZ_BTN_BACK,          /* [0x10, 0x08] */
+    AJAZZ_BTN_FORWARD,       /* [0x10, 0x10] */
+    AJAZZ_BTN_DOUBLE_CLICK,  /* [0x30, 0x32, 0x03] (unverified) */
+    AJAZZ_BTN_SCROLL_UP,     /* [0x20, 0x01] (unverified) */
+    AJAZZ_BTN_SCROLL_DOWN,   /* [0x20, 0xff] (unverified) */
+    AJAZZ_BTN_SCROLL_LEFT,   /* [0x10, 0x00, 0xf5] (unverified) */
+    AJAZZ_BTN_SCROLL_RIGHT,  /* [0x10, 0x00, 0xf6] (unverified) */
+    AJAZZ_BTN_DPI_LOOP,      /* [0x40, 0x01] -- factory default of the DPI button */
+    AJAZZ_BTN_DPI_UP,        /* [0x40, 0x02] (unverified) */
+    AJAZZ_BTN_DPI_DOWN,      /* [0x40, 0x03] (unverified) */
+    AJAZZ_BTN_DISABLED,      /* [0x60, 0x00] */
+} ajazz_button_fn_t;
+void ajazz_key_slot_set_function(ajazz_report_t *r, int slot, ajazz_button_fn_t fn);
+
+/* System shortcuts from the official driver's "System Shortcut" list. */
+typedef enum {
+    AJAZZ_SYS_BRIGHTNESS_UP = 1,
+    AJAZZ_SYS_BRIGHTNESS_DOWN,
+    AJAZZ_SYS_CALCULATOR,
+    AJAZZ_SYS_MY_COMPUTER,
+    AJAZZ_SYS_WEBSITE,
+    AJAZZ_SYS_MAIL,
+    AJAZZ_SYS_SHOW_DESKTOP,   /* Win+D  */
+    AJAZZ_SYS_SWITCH_APP,     /* Win+Tab */
+    AJAZZ_SYS_COPY,           /* Ctrl+C */
+    AJAZZ_SYS_PASTE,          /* Ctrl+V */
+    AJAZZ_SYS_CUT,            /* Ctrl+X */
+    AJAZZ_SYS_MEDIA_PLAYER,   /* consumer 0x0183 */
+} ajazz_system_fn_t;
+void ajazz_key_slot_set_system(ajazz_report_t *r, int slot, ajazz_system_fn_t fn);
+
 /* Restores button `slot` to its native/default function. */
 void ajazz_key_slot_reset_default(ajazz_report_t *r, int slot);
 
@@ -301,7 +392,7 @@ void ajazz_key_slot_set_fire(ajazz_report_t *r, int slot, uint8_t interval, uint
 
 /*
  * Macros. One AJAZZ_FAM_MACRO SET report: mode 0x01, opcode = number of
- * payload bytes used (not a fixed id). payload[0] is always 0x03,
+ * payload bytes used (not a fixed id). payload[0] is the 0-based button index the macro belongs to (the early captures were all button 4, hence the constant 0x03 this file used to claim),
  * followed by up to AJAZZ_MACRO_MAX_STEPS four-byte steps:
  * [kind, delay_lo, delay_hi, value].
  *   kind     = AJAZZ_MACRO_MOUSE_DOWN/UP or AJAZZ_MACRO_KEY_DOWN/UP
@@ -322,6 +413,10 @@ typedef enum {
     AJAZZ_MACRO_MOUSE_UP   = 0x90,
     AJAZZ_MACRO_KEY_DOWN   = 0x30,
     AJAZZ_MACRO_KEY_UP     = 0xb0,
+    /* Modifier keys (Ctrl/Shift/Alt/Win) are their own step kind in the
+     * official driver; value is the HID modifier bit (AJAZZ_MOD_*). */
+    AJAZZ_MACRO_MOD_DOWN   = 0x20,
+    AJAZZ_MACRO_MOD_UP     = 0xa0,
 } ajazz_macro_step_kind_t;
 
 typedef struct {
@@ -337,7 +432,7 @@ typedef struct {
 /* Builds the macro-content SET report for up to AJAZZ_MACRO_MAX_STEPS
  * steps. Extra steps are silently dropped; check the count yourself if
  * you need to report that clearly. */
-void ajazz_build_macro_content(ajazz_report_t *r, const ajazz_macro_step_t *steps, int n_steps);
+void ajazz_build_macro_content(ajazz_report_t *r, uint8_t key_index, const ajazz_macro_step_t *steps, int n_steps);
 
 /* Same idea for up to AJAZZ_MACRO_MAX_CHUNKED_STEPS steps: a single report
  * if it fits, chunked writes otherwise. Reconstructed via Ghidra
@@ -347,11 +442,22 @@ void ajazz_build_macro_content(ajazz_report_t *r, const ajazz_macro_step_t *step
  * (AJAZZ_MACRO_MAX_CHUNKED_STEPS * 4 + 1 + AJAZZ_PAYLOAD_LEN - 1) /
  * AJAZZ_PAYLOAD_LEN reports. Send them in order. Returns the report
  * count, or -1 if n_steps is over the limit. */
-int ajazz_build_macro_content_chunked(ajazz_report_t *out, int max_out, const ajazz_macro_step_t *steps, int n_steps);
+int ajazz_build_macro_content_chunked(ajazz_report_t *out, int max_out, uint8_t key_index, const ajazz_macro_step_t *steps, int n_steps);
 
 /* Marks button `slot` (0-based) as macro-triggering. `r` must already
  * hold a full key table. Send the macro content first, see above. */
-void ajazz_key_slot_set_macro(ajazz_report_t *r, int slot);
+typedef enum {
+    AJAZZ_MACRO_ONCE = 0,        /* play once per press */
+    AJAZZ_MACRO_WHILE_HELD = 1,  /* repeat while the button is held */
+    AJAZZ_MACRO_UNTIL_CLICK = 2, /* repeat until any click */
+    AJAZZ_MACRO_N_TIMES = 3,     /* repeat `loop_count` times */
+} ajazz_macro_loop_t;
+
+/* Slot bytes are [0x90, key_index | flags, count] where flags are 0x10
+ * (repeat while held), 0x40 (repeat until any click) or 0x20 (repeat N
+ * times, count in byte 2). The earlier constant [0x23, 0x01] was simply
+ * "button 4, 1 repeat" from the captures. */
+void ajazz_key_slot_set_macro(ajazz_report_t *r, int slot, ajazz_macro_loop_t loop, uint8_t loop_count);
 
 /* Parses a DPI table payload (query 0x13 reply, or a family 0x03 report). */
 void ajazz_parse_dpi_table(const ajazz_report_t *r, uint16_t dpi_out[AJAZZ_DPI_STAGES]);
@@ -364,31 +470,6 @@ int ajazz_dpi_table_active_stage(const ajazz_report_t *r);
  * report-rate payload[0] value back into Hz. Returns 0 if it doesn't
  * match one of the four known intervals. */
 int ajazz_report_rate_hz(uint8_t interval_ms);
-
-/* AJAZZ_QUERY_LED_MODE reply decoding. `effect` is the reply's opcode
- * byte; compare it against AJAZZ_LED_OFF/CONSTANT/RAINBOW rather than
- * assuming those are the only possible values. Confirmed by cycling
- * through all three via wire capture and reading back after each change;
- * constant's brightness matched at all 5 levels. One loose end:
- * AJAZZ_LED_OFF (0x01) doesn't match the "off" SET command's own opcode
- * (0x02) the way constant and rainbow's do, and there's no explanation
- * for that beyond it being what the device sends. `speed` only means
- * anything for AJAZZ_LED_RAINBOW. Returns 0 for a recognized effect, -1
- * otherwise (still fills in effect=r->opcode so callers can show
- * something without special-casing the error). */
-typedef enum {
-    AJAZZ_LED_OFF      = 0x01,
-    AJAZZ_LED_CONSTANT = 0x05,
-    AJAZZ_LED_RAINBOW  = 0x18,
-} ajazz_led_effect_t;
-
-typedef struct {
-    uint8_t effect;
-    uint8_t brightness; /* 0-4 */
-    uint8_t speed;      /* 0-4, only valid when effect == AJAZZ_LED_RAINBOW */
-} ajazz_led_state_t;
-
-int ajazz_parse_led_mode(const ajazz_report_t *r, ajazz_led_state_t *out);
 
 /* Takes the raw byte at AJAZZ_BATTERY_PAYLOAD_OFFSET in a 0x10 device info
  * reply (not the broken 0x20 query, see the note above). It's a plain

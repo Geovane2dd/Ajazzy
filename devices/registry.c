@@ -90,3 +90,20 @@ uint32_t ajazz_lookup_confirmed_caps(const char *dev_id)
     }
     return 0;
 }
+
+const char *ajazz_lookup_image(const char *model_name)
+{
+    if (!model_name)
+        return "generic";
+    if (strstr(model_name, "139")) return "aj139pro";
+    if (strstr(model_name, "159")) return "aj159";
+    if (strstr(model_name, "179")) return "aj179";
+    return "generic";
+}
+
+uint32_t ajazz_lookup_light_modes(const char *dev_id)
+{
+    (void)dev_id;
+    /* Extend here (by dev_id) if a model is found whose XML enables more. */
+    return (1u << 0) /* off */ | (1u << 2) /* breathing */ | (1u << 3) /* steady */;
+}

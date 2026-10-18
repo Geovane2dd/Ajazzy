@@ -1,910 +1,953 @@
 /*
- * Lighting page: RGB effect (off / constant / rainbow), brightness, and
- * rainbow speed. The mouse firmware only implements those three modes
- * -- see docs/reverse-engineering.md's "What's still unknown" section
- * for why there's no separate "breathing" effect.
+ * Lighting.
  *
- * RGB_SOFT_BREATHING and RGB_SOFT_COLORCYCLE below are NOT firmware
- * effects -- they're this app repeatedly re-sending real SET commands on
- * a timer to animate something the firmware only supports as a static
- * value. Both rewrite EVERY DPI stage's indicator colour (family 0x04,
- * ajazz_build_set_dpi_colors()) on a tick, while "constant colour" mode
- * is on -- that mode lights the same LED the DPI stage indicator colour
- * drives (the constant-colour SET command carries no RGB of its own,
- * only brightness -- see ajazz_build_set_rgb_constant() in
- * protocol/hid.h). Writing the same colour to all 6 stages (not just
- * whichever one the UI last had selected) means the light stays lit and
- * animating regardless of which stage the mouse actually has active.
- * This is a small software effects engine layered on top of one real
- * firmware mode, not new wire commands, and it stops the moment the app
- * closes -- a real "breathing" or "wave" firmware mode does not exist on
- * this device (see AJAZZ_LED_* in protocol/hid.h), so this is as close
- * as software can get without inventing hardware capability. Two kinds,
- * not a gallery of them, since a fixed-colour LED only really supports
- * "smoothly oscillate its brightness" (breathing) and "smoothly rotate
- * its hue" (colour cycle) -- most gamer-mouse-software effect names
- * beyond those two are just those same two curves applied to more LEDs
- * than this mouse has.
+ * Six effects run inside the mouse's firmware and keep going with Ajazzy
+ * closed (off, steady, breathing, flowing, neon, colour wave -- the modes
+ * the official driver sends; see AJAZZ_LIGHT_* in protocol/hid.h). Two more
+ * are software effects (colour cycle, custom fade): Ajazzy keeps re-sending
+ * a colour while it is open. They are clearly labelled, they stop when the
+ * app exits, and they never touch the DPI indicator colours you have set --
+ * those are restored when the effect ends.
+ *
+ * Every control applies immediately.
  */
 
 #include <adwaita.h>
 #include <glib/gi18n.h>
-#include <string.h>
 #include <math.h>
+#include <string.h>
+#include <glib/gstdio.h>
 
 #include "app.h"
 #include "jsonutil.h"
 #include "../devices/device.h"
+#include "../devices/registry.h"
 
+typedef struct {
+    const char *name;
+    const char *note;
+    gboolean software;
+} FxInfo;
 
-enum { RGB_OFF, RGB_RAINBOW, RGB_CONSTANT, RGB_SOFT_BREATHING, RGB_SOFT_COLORCYCLE, RGB_SOFT_CUSTOM };
-#define RGB_EFFECT_COUNT (RGB_SOFT_CUSTOM + 1)
+static const FxInfo FX[LFX_COUNT] = {
+    [LFX_OFF]        = {N_("Off"),          N_("Lights off"), FALSE},
+    [LFX_STEADY]     = {N_("Steady"),       N_("One solid colour"), FALSE},
+    [LFX_BREATHING]  = {N_("Breathing"),    N_("Fades in and out, up to 7 colours"), FALSE},
+    [LFX_FLOW]       = {N_("Flowing"),      N_("Built-in flowing light"), FALSE},
+    [LFX_NEON]       = {N_("Neon"),         N_("Built-in neon effect"), FALSE},
+    [LFX_WAVE]       = {N_("Colour wave"),  N_("Built-in rainbow wave"), FALSE},
+    [LFX_SOFT_CYCLE] = {N_("Colour cycle"), N_("Smooth hue rotation"), TRUE},
+    [LFX_SOFT_FADE]  = {N_("Custom fade"),  N_("Cross-fades your colours"), TRUE},
+};
 
-static GtkWidget *g_lighting_presets_row; /* rebuilt by populate_custom_presets() */
-static void populate_custom_presets(App *app);
-
-static void update_rgb_row_visibility(App *app)
+const char *lighting_effect_name(int effect)
 {
-    guint sel = adw_combo_row_get_selected(app->rgb_effect);
-    gtk_widget_set_visible(GTK_WIDGET(app->rgb_brightness), sel != RGB_OFF);
-    gtk_widget_set_visible(GTK_WIDGET(app->rgb_speed_row),
-        sel == RGB_RAINBOW || sel == RGB_SOFT_BREATHING || sel == RGB_SOFT_COLORCYCLE || sel == RGB_SOFT_CUSTOM);
-    if (app->rgb_soft_color_row)
-        gtk_widget_set_visible(GTK_WIDGET(app->rgb_soft_color_row), sel == RGB_SOFT_BREATHING || sel == RGB_SOFT_CUSTOM);
-    if (app->rgb_custom_row)
-        gtk_widget_set_visible(GTK_WIDGET(app->rgb_custom_row), sel == RGB_SOFT_CUSTOM);
+    if (effect < 0 || effect >= LFX_COUNT)
+        return "?";
+    return gettext(FX[effect].name);
 }
 
-static void sync_rgb_listbox_from_combo(App *app);
-static void on_rgb_effect_changed(GObject *dd, GParamSpec *pspec, gpointer user_data)
+typedef struct {
+    GtkWidget *fx_btn[LFX_COUNT];
+    GtkWidget *fx_prev[LFX_COUNT];
+    GtkWidget *bri_seg, *speed_seg;
+    GtkWidget *bri_row, *speed_row, *steady_row, *palette_row, *soft_note;
+    GtkWidget *steady_btn;
+    GtkWidget *pal_btn[LIGHT_PALETTE_MAX];
+    AdwSpinRow *pal_count;
+    GtkWidget *transition_row;
+    GtkWidget *presets_box;
+    UiDebounce *apply_deb;
+    guint tick_id;
+} LightUI;
+
+static LightUI L;
+static gboolean fx_available(App *app, int fx);
+static void update_visibility(App *app);
+static gboolean loading;
+static guint soft_timer;
+static double soft_phase;
+static int soft_fail;
+
+/* ---------------- colour helpers ---------------- */
+
+static void hsv_to_rgb(double h, uint8_t out[3])
 {
-    (void)dd; (void)pspec;
-    App *app = user_data;
-    update_rgb_row_visibility(app);
-    sync_rgb_listbox_from_combo(app);
+    h = fmod(h, 360.0);
+    if (h < 0) h += 360.0;
+    double x = 1.0 - fabs(fmod(h / 60.0, 2.0) - 1.0);
+    double r, g, b;
+    if (h < 60) { r = 1; g = x; b = 0; }
+    else if (h < 120) { r = x; g = 1; b = 0; }
+    else if (h < 180) { r = 0; g = 1; b = x; }
+    else if (h < 240) { r = 0; g = x; b = 1; }
+    else if (h < 300) { r = x; g = 0; b = 1; }
+    else { r = 1; g = 0; b = x; }
+    out[0] = (uint8_t)(r * 255 + 0.5);
+    out[1] = (uint8_t)(g * 255 + 0.5);
+    out[2] = (uint8_t)(b * 255 + 0.5);
 }
 
-/* Stops whichever software effect loop is running, if any. Safe to
- * call unconditionally (e.g. before applying any other effect, or on
- * shutdown). */
-static void stop_rgb_soft_effect(App *app)
+/* the user's n colours -> the 7 slots the firmware wants, spread evenly so
+ * every colour gets about the same share of the cycle */
+static void expand_palette(const AppLight *l, uint8_t out[AJAZZ_LIGHT_PALETTE][3])
 {
-    if (app->rgb_soft_timer_id != 0) {
-        g_source_remove(app->rgb_soft_timer_id);
-        app->rgb_soft_timer_id = 0;
+    int n = l->palette_n < 1 ? 1 : (l->palette_n > LIGHT_PALETTE_MAX ? LIGHT_PALETTE_MAX : l->palette_n);
+    for (int i = 0; i < AJAZZ_LIGHT_PALETTE; i++)
+        memcpy(out[i], l->palette[i * n / AJAZZ_LIGHT_PALETTE], 3);
+}
+
+/* inverse of expand_palette() for what the mouse reports: collapse runs */
+static void collapse_palette(const uint8_t in[AJAZZ_LIGHT_PALETTE][3], AppLight *l)
+{
+    int n = 0;
+    for (int i = 0; i < AJAZZ_LIGHT_PALETTE; i++) {
+        if (i == 0 || memcmp(in[i], in[i - 1], 3) != 0)
+            memcpy(l->palette[n++], in[i], 3);
+    }
+    l->palette_n = n;
+}
+
+static void default_light(AppLight *l)
+{
+    memset(l, 0, sizeof(*l));
+    l->effect = LFX_STEADY;
+    l->brightness = 4;
+    l->speed = 2;
+    l->color[0] = 0xe8; l->color[1] = 0x39; l->color[2] = 0x4a;
+    for (int i = 0; i < LIGHT_PALETTE_MAX; i++)
+        memcpy(l->palette[i], AJAZZ_LIGHT_DEFAULT_PALETTE[i], 3);
+    l->palette_n = LIGHT_PALETTE_MAX;
+}
+
+/* ---------------- sending ---------------- */
+
+typedef struct {
+    ajazz_report_t req[2];
+    int n, rc;
+    gboolean toast_fail;
+} LJob;
+
+static void ljob_work(App *app, gpointer d)
+{
+    LJob *j = d;
+    j->rc = 0;
+    for (int i = 0; i < j->n; i++)
+        if (ajazz_send_and_wait_mt(app, &j->req[i], 1000) != 0) { j->rc = -1; break; }
+}
+
+static void ljob_done(App *app, gpointer d)
+{
+    LJob *j = d;
+    if (j->rc != 0 && j->toast_fail)
+        toast(app, _("Couldn't change the lighting."));
+}
+
+static void soft_stop(App *app, gboolean restore_dpi_colors)
+{
+    if (soft_timer) {
+        g_source_remove(soft_timer);
+        soft_timer = 0;
+        if (restore_dpi_colors && app->connected) {
+            LJob *j = g_new0(LJob, 1);
+            ajazz_build_set_dpi_colors(&j->req[0], app->dpi_color_cache);
+            j->n = 1;
+            app_async(app, ljob_work, NULL, j, g_free);
+        }
     }
 }
 
-/* Standard HSV(0-360, 0-1, 0-1) -> RGB(0-255) conversion, hue only
- * needing to sweep the full circle for a colour-cycle effect. */
-static void hsv_to_rgb(double h, uint8_t *r, uint8_t *g, uint8_t *b)
+void lighting_shutdown(App *app)
 {
-    double c = 1.0;
-    double x = c * (1.0 - fabs(fmod(h / 60.0, 2.0) - 1.0));
-    double rp, gp, bp;
-    if      (h < 60)  { rp = c; gp = x; bp = 0; }
-    else if (h < 120) { rp = x; gp = c; bp = 0; }
-    else if (h < 180) { rp = 0; gp = c; bp = x; }
-    else if (h < 240) { rp = 0; gp = x; bp = c; }
-    else if (h < 300) { rp = x; gp = 0; bp = c; }
-    else              { rp = c; gp = 0; bp = x; }
-    *r = (uint8_t)(rp * 255.0 + 0.5);
-    *g = (uint8_t)(gp * 255.0 + 0.5);
-    *b = (uint8_t)(bp * 255.0 + 0.5);
+    soft_stop(app, FALSE);
 }
 
-/* One frame of whichever software effect is running (app->rgb_soft_effect_kind),
- * shared by both since they only differ in how they turn app->rgb_soft_phase
- * into a colour -- everything else (the trylock send, the fail-count
- * watchdog, advancing the phase) is identical. Ticks every 150ms; the
- * Speed row controls how fast the phase advances. */
-static gboolean rgb_soft_tick(gpointer user_data)
+static void soft_color_at(const AppLight *l, double phase, uint8_t out[3])
+{
+    if (l->effect == LFX_SOFT_CYCLE) {
+        hsv_to_rgb(phase * 360.0, out);
+        return;
+    }
+    int n = l->palette_n < 1 ? 1 : l->palette_n;
+    if (n == 1) { memcpy(out, l->palette[0], 3); return; }
+    double pos = fmod(phase, 1.0) * n;
+    int i = (int)pos % n, j = (i + 1) % n;
+    double f = pos - floor(pos);
+    if (l->soft_transition == 1) f = 0;
+    for (int c = 0; c < 3; c++)
+        out[c] = (uint8_t)(l->palette[i][c] * (1 - f) + l->palette[j][c] * f + 0.5);
+}
+
+static gboolean soft_tick(gpointer user_data)
 {
     App *app = user_data;
     if (!app->connected) {
-        app->rgb_soft_timer_id = 0;
+        soft_timer = 0;
         return G_SOURCE_REMOVE;
     }
+    double speed = app->light.speed; /* 0-4 */
+    double revolutions_per_s = 0.04 + speed * 0.05;
+    soft_phase = fmod(soft_phase + revolutions_per_s * 0.12, 1.0);
 
-    double speed = adw_spin_row_get_value(app->rgb_speed);
-    uint8_t r, g, b;
-
-    if (app->rgb_soft_effect_kind == RGB_SOFT_BREATHING) {
-        /* Brightness (not hue) oscillates 0% -> 100% -> 0%, smoothly (a
-         * sine wave), around a fixed user-picked colour -- the LED
-         * itself only accepts an RGB value, not a separate brightness
-         * knob fine enough for this, so "dimming" is done by scaling
-         * the colour components down toward black and back up. */
-        double step = 0.03 + speed * 0.05; /* radians of phase per tick */
-        double frac = (sin(app->rgb_soft_phase) + 1.0) / 2.0; /* 0..1 */
-        r = (uint8_t)(app->rgb_soft_color[0] * frac + 0.5);
-        g = (uint8_t)(app->rgb_soft_color[1] * frac + 0.5);
-        b = (uint8_t)(app->rgb_soft_color[2] * frac + 0.5);
-        app->rgb_soft_phase += step;
-        if (app->rgb_soft_phase >= 2 * G_PI)
-            app->rgb_soft_phase -= 2 * G_PI;
-    } else if (app->rgb_soft_effect_kind == RGB_SOFT_CUSTOM) {
-        /* Custom: play through the user's own colour sequence, either
-         * cross-fading from one to the next or hard-cutting between
-         * them. rgb_soft_phase here is a position along the sequence
-         * (0..count), not degrees/radians like the other two kinds. */
-        int n = app->rgb_custom_count;
-        if (n <= 0) {
-            r = app->rgb_soft_color[0]; g = app->rgb_soft_color[1]; b = app->rgb_soft_color[2];
-        } else if (n == 1) {
-            r = app->rgb_custom_colors[0][0]; g = app->rgb_custom_colors[0][1]; b = app->rgb_custom_colors[0][2];
-        } else {
-            double step = 0.01 + speed * 0.02; /* sequence positions per tick */
-            int idx = (int)app->rgb_soft_phase % n;
-            int next = (idx + 1) % n;
-            double frac = app->rgb_soft_phase - (double)(int)app->rgb_soft_phase;
-            if (app->rgb_custom_transition == 0) {
-                r = (uint8_t)(app->rgb_custom_colors[idx][0] * (1 - frac) + app->rgb_custom_colors[next][0] * frac + 0.5);
-                g = (uint8_t)(app->rgb_custom_colors[idx][1] * (1 - frac) + app->rgb_custom_colors[next][1] * frac + 0.5);
-                b = (uint8_t)(app->rgb_custom_colors[idx][2] * (1 - frac) + app->rgb_custom_colors[next][2] * frac + 0.5);
-            } else {
-                r = app->rgb_custom_colors[idx][0]; g = app->rgb_custom_colors[idx][1]; b = app->rgb_custom_colors[idx][2];
-            }
-            app->rgb_soft_phase += step;
-            if (app->rgb_soft_phase >= n)
-                app->rgb_soft_phase -= n;
-        }
-    } else {
-        /* Colour cycle: hue rotates through the full spectrum. */
-        double step = 2.0 + speed * 3.0; /* degrees of hue per tick */
-        hsv_to_rgb(app->rgb_soft_phase, &r, &g, &b);
-        app->rgb_soft_phase += step;
-        if (app->rgb_soft_phase >= 360.0)
-            app->rgb_soft_phase -= 360.0;
-    }
-
-    for (int i = 0; i < AJAZZ_DPI_STAGES; i++) {
-        app->dpi_color_cache[i][0] = r;
-        app->dpi_color_cache[i][1] = g;
-        app->dpi_color_cache[i][2] = b;
-    }
-
+    uint8_t rgb[3];
+    soft_color_at(&app->light, soft_phase, rgb);
+    uint8_t cols[AJAZZ_DPI_STAGES][3];
+    for (int i = 0; i < AJAZZ_DPI_STAGES; i++)
+        memcpy(cols[i], rgb, 3);
     ajazz_report_t req;
-    ajazz_build_set_dpi_colors(&req, app->dpi_color_cache);
+    ajazz_build_set_dpi_colors(&req, cols);
 
-    /* trylock, not the blocking ajazz_send_mt(): this runs on the main
-     * thread every 150ms, and a page's background refresh can hold
-     * hid_lock for up to a second -- blocking here would freeze the
-     * whole window for that long every time a page fetch and a tick
-     * happen to overlap. A skipped tick just means the animation misses
-     * one frame; it keeps advancing next tick. */
+    /* never block the UI thread on the device lock */
     int rc = ajazz_send_trylock_mt(app, &req);
     if (rc == 0 || rc == 1) {
-        app->rgb_soft_fail_count = 0;
-    } else {
-        app->rgb_soft_fail_count++;
-        if (app->rgb_soft_fail_count >= 5) {
-            app->rgb_soft_timer_id = 0;
-            app->rgb_soft_fail_count = 0;
-            toast(app, _("Software lighting effect stopped (mouse not responding)."));
-            return G_SOURCE_REMOVE;
-        }
+        soft_fail = 0;
+    } else if (++soft_fail >= 5) {
+        soft_timer = 0;
+        soft_fail = 0;
+        toast(app, _("Software lighting effect stopped (mouse not responding)."));
+        return G_SOURCE_REMOVE;
     }
-
     return G_SOURCE_CONTINUE;
 }
 
-/* Just caches the picked colour for the next breathing tick to use --
- * doesn't send anything itself, since breathing only actually starts
- * from on_rgb_apply(). */
-static void on_rgb_soft_color_changed(GtkColorDialogButton *btn, GParamSpec *pspec, gpointer user_data)
+gboolean lighting_apply(App *app, const AppLight *l)
 {
-    (void)pspec;
-    App *app = user_data;
-    const GdkRGBA *rgba = gtk_color_dialog_button_get_rgba(btn);
-    app->rgb_soft_color[0] = (uint8_t)(rgba->red * 255.0 + 0.5);
-    app->rgb_soft_color[1] = (uint8_t)(rgba->green * 255.0 + 0.5);
-    app->rgb_soft_color[2] = (uint8_t)(rgba->blue * 255.0 + 0.5);
-}
+    if (!app->connected)
+        return FALSE;
+    app->light = *l;
+    if (!fx_available(app, app->light.effect))
+        app->light.effect = LFX_BREATHING; /* e.g. an old profile that picked an effect this model doesn't run */
+    l = &app->light;
+    gboolean was_soft = soft_timer != 0;
+    soft_stop(app, FALSE);
 
-/* Redraws the Custom effect's swatch row from app->rgb_custom_colors --
- * called after adding or removing a colour. Each swatch is itself a
- * button so clicking one removes it (no separate delete icon needed for
- * a list this short). */
-static void on_custom_swatch_clicked(GtkButton *btn, gpointer user_data);
+    LJob *j = g_new0(LJob, 1);
+    j->toast_fail = TRUE;
+    uint8_t b = (uint8_t)l->brightness, s = (uint8_t)l->speed;
 
-static void rebuild_custom_swatches(App *app)
-{
-    if (!app->rgb_custom_swatches_box)
-        return;
-    GtkWidget *child;
-    while ((child = gtk_widget_get_first_child(app->rgb_custom_swatches_box)))
-        gtk_box_remove(GTK_BOX(app->rgb_custom_swatches_box), child);
-
-    for (int i = 0; i < app->rgb_custom_count; i++) {
-        GtkWidget *swatch = gtk_button_new();
-        gtk_widget_add_css_class(swatch, "circular");
-        gtk_widget_set_size_request(swatch, 28, 28);
-        gtk_widget_set_tooltip_text(swatch, _("Click to remove"));
-        char name[24];
-        snprintf(name, sizeof(name), "ajazz-swatch-%d", i);
-        gtk_widget_set_name(swatch, name);
-        char css[96];
-        snprintf(css, sizeof(css), "#%s { background-color: #%02x%02x%02x; }", name,
-            app->rgb_custom_colors[i][0], app->rgb_custom_colors[i][1], app->rgb_custom_colors[i][2]);
-        GtkCssProvider *prov = gtk_css_provider_new();
-        gtk_css_provider_load_from_string(prov, css);
-        gtk_style_context_add_provider_for_display(gdk_display_get_default(),
-            GTK_STYLE_PROVIDER(prov), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-        g_object_unref(prov);
-        gpointer *data = g_new(gpointer, 2);
-        data[0] = app;
-        data[1] = GINT_TO_POINTER(i);
-        g_signal_connect_data(swatch, "clicked", G_CALLBACK(on_custom_swatch_clicked), data, free_closure_data, 0);
-        gtk_box_append(GTK_BOX(app->rgb_custom_swatches_box), swatch);
-    }
-}
-
-static void on_custom_swatch_clicked(GtkButton *btn, gpointer user_data)
-{
-    (void)btn;
-    gpointer *data = user_data;
-    App *app = data[0];
-    int idx = GPOINTER_TO_INT(data[1]);
-    if (idx < 0 || idx >= app->rgb_custom_count)
-        return;
-    for (int i = idx; i < app->rgb_custom_count - 1; i++)
-        memcpy(app->rgb_custom_colors[i], app->rgb_custom_colors[i + 1], 3);
-    app->rgb_custom_count--;
-    rebuild_custom_swatches(app);
-}
-
-static void on_custom_transition_changed(GObject *dd, GParamSpec *pspec, gpointer user_data)
-{
-    (void)pspec;
-    App *app = user_data;
-    app->rgb_custom_transition = (int)adw_combo_row_get_selected(ADW_COMBO_ROW(dd));
-}
-
-static void on_custom_add_color_clicked(GtkButton *btn, gpointer user_data)
-{
-    (void)btn;
-    App *app = user_data;
-    if (app->rgb_custom_count >= 8) {
-        toast(app, _("Custom sequences hold up to 8 colours."));
-        return;
-    }
-    memcpy(app->rgb_custom_colors[app->rgb_custom_count], app->rgb_soft_color, 3);
-    app->rgb_custom_count++;
-    rebuild_custom_swatches(app);
-}
-
-static void on_rgb_apply(GtkButton *btn, gpointer user_data)
-{
-    (void)btn;
-    App *app = user_data;
-    if (!ensure_connected(app)) { toast(app, _("Connect the mouse first.")); return; }
-
-    guint effect = adw_combo_row_get_selected(app->rgb_effect);
-    uint8_t brightness = (uint8_t)adw_spin_row_get_value(app->rgb_brightness);
-
-    if (effect == RGB_SOFT_BREATHING || effect == RGB_SOFT_COLORCYCLE || effect == RGB_SOFT_CUSTOM) {
-        if (effect == RGB_SOFT_CUSTOM && app->rgb_custom_count == 0) {
-            toast(app, _("Add at least one colour to the sequence first."));
-            return;
-        }
-        /* Turn the LED on at constant colour first (a confirmed,
-         * synchronous SET), then hand off to the timer to animate it --
-         * rather than starting the loop on a possibly-off LED and
-         * waiting for the first tick to light it. */
-        ajazz_report_t req;
-        ajazz_build_set_rgb_constant(&req, brightness);
-        if (ajazz_send_and_wait_mt(app, &req, 1000) != 0) {
-            toast(app, _("Failed to apply lighting."));
-            return;
-        }
-        stop_rgb_soft_effect(app);
-        app->rgb_soft_effect_kind = (int)effect;
-        app->rgb_soft_phase = 0;
-        app->rgb_soft_fail_count = 0;
-        app->rgb_soft_timer_id = g_timeout_add(150, rgb_soft_tick, app);
-        toast(app, effect == RGB_SOFT_BREATHING ? _("Breathing effect started -- fades the mouse's colour live.")
-            : effect == RGB_SOFT_CUSTOM ? _("Custom effect started -- plays your colour sequence live.")
-            : _("Rainbow started -- rotates the mouse's colour live."));
-        return;
-    }
-
-    stop_rgb_soft_effect(app);
-
-    ajazz_report_t req;
-    switch (effect) {
-        case RGB_RAINBOW: {
-            uint8_t speed = (uint8_t)adw_spin_row_get_value(app->rgb_speed);
-            ajazz_build_set_rgb_rainbow(&req, brightness, speed);
+    switch (l->effect) {
+        case LFX_OFF:
+            ajazz_build_set_rgb_off(&j->req[0]);
+            break;
+        case LFX_STEADY:
+            ajazz_build_set_light_steady(&j->req[0], b, s, l->color);
+            break;
+        case LFX_BREATHING: {
+            uint8_t pal[AJAZZ_LIGHT_PALETTE][3];
+            expand_palette(l, pal);
+            ajazz_build_set_light_breathing(&j->req[0], b, s, pal);
             break;
         }
-        case RGB_CONSTANT:
-            ajazz_build_set_rgb_constant(&req, brightness);
+        case LFX_FLOW:
+            ajazz_build_set_light_simple(&j->req[0], AJAZZ_LIGHT_FLOW, b, s);
             break;
-        default:
-            ajazz_build_set_rgb_off(&req);
+        case LFX_NEON:
+            ajazz_build_set_light_simple(&j->req[0], AJAZZ_LIGHT_NEON, b, s);
             break;
+        case LFX_WAVE:
+            ajazz_build_set_light_simple(&j->req[0], AJAZZ_LIGHT_WAVE, b, s);
+            break;
+        default: {
+            /* software effects ride on the steady mode */
+            uint8_t first[3] = {255, 255, 255};
+            soft_color_at(l, 0, first);
+            ajazz_build_set_light_steady(&j->req[0], b, s, first);
+            break;
+        }
     }
+    j->n = 1;
+    /* a software effect leaves the DPI colours rewritten; put them back */
+    if (was_soft && l->effect < LFX_SOFT_CYCLE) {
+        ajazz_build_set_dpi_colors(&j->req[1], app->dpi_color_cache);
+        j->n = 2;
+    }
+    app_async(app, ljob_work, ljob_done, j, g_free);
 
-    if (ajazz_send_and_wait_mt(app, &req, 1000) == 0)
-        toast(app, _("Lighting applied."));
-    else
-        toast(app, _("Failed to apply lighting."));
+    if (l->effect >= LFX_SOFT_CYCLE) {
+        soft_phase = 0;
+        soft_fail = 0;
+        soft_timer = g_timeout_add(120, soft_tick, app);
+    }
+    return TRUE;
 }
 
-/* Heap-allocated result of the fetch thread below, handed to
- * lighting_fetch_apply() on the main thread via g_idle_add(). */
-typedef struct {
-    App *app;
-    gboolean ok;
-    gboolean recognized;
-    ajazz_led_state_t st;
-} LightingFetchResult;
+/* ---------------- UI sync ---------------- */
 
-static gboolean lighting_fetch_apply(gpointer user_data)
+/* Flowing, neon and colour wave are accepted by the firmware but the official
+ * driver disables them for every model we have a config for (device/mouse_*.xml,
+ * enable="0"), so they're only shown when the model's table says it runs them. */
+static gboolean fx_available(App *app, int fx)
 {
-    LightingFetchResult *res = user_data;
-    App *app = res->app;
-    app->lighting_fetch_pending = FALSE;
-
-    if (!app->connected || !res->ok || !res->recognized) {
-        /* Not connected, query failed, or an unrecognized opcode --
-         * leave the controls as they are, same as the original code. */
-        g_free(res);
-        return G_SOURCE_REMOVE;
+    int hw = -1;
+    switch (fx) {
+        case LFX_OFF: hw = AJAZZ_LIGHT_OFF; break;
+        case LFX_STEADY: hw = AJAZZ_LIGHT_STEADY; break;
+        case LFX_BREATHING: hw = AJAZZ_LIGHT_BREATHING; break;
+        case LFX_FLOW: hw = AJAZZ_LIGHT_FLOW; break;
+        case LFX_NEON: hw = AJAZZ_LIGHT_NEON; break;
+        case LFX_WAVE: hw = AJAZZ_LIGHT_WAVE; break;
+        default: return TRUE; /* software effects run anywhere */
     }
+    uint32_t modes = app->connected ? ajazz_lookup_light_modes(app->dev.dev_id)
+                                    : ((1u << AJAZZ_LIGHT_OFF) | (1u << AJAZZ_LIGHT_BREATHING) | (1u << AJAZZ_LIGHT_STEADY));
+    return (modes >> hw) & 1u;
+}
 
-    guint effect_sel;
-    switch (res->st.effect) {
-        case AJAZZ_LED_OFF:      effect_sel = RGB_OFF;      break;
-        case AJAZZ_LED_CONSTANT: effect_sel = RGB_CONSTANT; break;
-        default:                 effect_sel = RGB_RAINBOW;  break;
+static void update_visibility(App *app)
+{
+    for (int i = 0; i < LFX_COUNT; i++)
+        gtk_widget_set_visible(gtk_widget_get_parent(L.fx_btn[i]), fx_available(app, i));
+
+    int fx = app->light.effect;
+    gboolean hw_colour = fx == LFX_STEADY;
+    gboolean palette = fx == LFX_BREATHING || fx == LFX_SOFT_FADE;
+    gtk_widget_set_visible(L.bri_row, fx != LFX_OFF);
+    gtk_widget_set_visible(L.speed_row, fx != LFX_OFF && fx != LFX_STEADY);
+    gtk_widget_set_visible(L.steady_row, hw_colour);
+    gtk_widget_set_visible(L.palette_row, palette);
+    gtk_widget_set_visible(L.transition_row, fx == LFX_SOFT_FADE);
+    gtk_widget_set_visible(L.soft_note, FX[fx].software);
+    int n = app->light.palette_n;
+    for (int i = 0; i < LIGHT_PALETTE_MAX; i++)
+        gtk_widget_set_visible(L.pal_btn[i], i < n);
+}
+
+static void sync_ui(App *app)
+{
+    loading = TRUE;
+    const AppLight *l = &app->light;
+    for (int i = 0; i < LFX_COUNT; i++)
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(L.fx_btn[i]), i == l->effect);
+    ui_segmented_set(L.bri_seg, l->brightness < 0 ? 0 : l->brightness > 4 ? 4 : l->brightness);
+    ui_segmented_set(L.speed_seg, l->speed < 0 ? 0 : l->speed > 4 ? 4 : l->speed);
+    GdkRGBA rgba;
+    ui_rgba_from_rgb(&rgba, l->color);
+    gtk_color_dialog_button_set_rgba(GTK_COLOR_DIALOG_BUTTON(L.steady_btn), &rgba);
+    for (int i = 0; i < LIGHT_PALETTE_MAX; i++) {
+        ui_rgba_from_rgb(&rgba, l->palette[i]);
+        gtk_color_dialog_button_set_rgba(GTK_COLOR_DIALOG_BUTTON(L.pal_btn[i]), &rgba);
     }
-    adw_combo_row_set_selected(app->rgb_effect, effect_sel);
-    if (effect_sel != RGB_OFF)
-        adw_spin_row_set_value(app->rgb_brightness, res->st.brightness);
-    if (effect_sel == RGB_RAINBOW)
-        adw_spin_row_set_value(app->rgb_speed, res->st.speed);
-    update_rgb_row_visibility(app);
+    adw_spin_row_set_value(L.pal_count, l->palette_n);
+    update_visibility(app);
+    loading = FALSE;
+}
 
-    g_free(res);
+static gboolean apply_deb_fire(gpointer user_data)
+{
+    App *app = user_data;
+    lighting_apply(app, &app->light);
     return G_SOURCE_REMOVE;
 }
 
-/* Runs off the main thread -- MUST NOT touch any GTK widget, only
- * app->dev via the *_mt() wrapper (see App::hid_lock) and the heap
- * result handed to lighting_fetch_apply(). */
-static gpointer lighting_fetch_thread(gpointer user_data)
+static void commit_now(App *app)
+{
+    ui_debounce_cancel(L.apply_deb);
+    update_visibility(app);
+    lighting_apply(app, &app->light);
+}
+
+/* ---------------- handlers ---------------- */
+
+static void on_fx_toggled(GtkToggleButton *b, gpointer user_data)
+{
+    gpointer *d = user_data;
+    App *app = d[0];
+    int fx = GPOINTER_TO_INT(d[1]);
+    if (loading || !gtk_toggle_button_get_active(b))
+        return;
+    if (app->light.effect == fx)
+        return;
+    app->light.effect = fx;
+    commit_now(app);
+}
+
+static void on_bri(int i, gpointer user_data)
 {
     App *app = user_data;
-    LightingFetchResult *res = g_new0(LightingFetchResult, 1);
-    res->app = app;
-
-    ajazz_report_t reply;
-    res->ok = (ajazz_query_mt(app, AJAZZ_QUERY_LED_MODE, &reply, 1000) == 0);
-    if (res->ok)
-        res->recognized = (ajazz_parse_led_mode(&reply, &res->st) == 0);
-
-    g_idle_add(lighting_fetch_apply, res);
-    return NULL;
+    if (loading) return;
+    app->light.brightness = i;
+    commit_now(app);
 }
 
-/* Called every time the Lighting page becomes visible, same as the other
- * pages. All three effects (off/constant/rainbow) and their
- * brightness/speed are confirmed against real hardware, see the comment
- * on AJAZZ_QUERY_LED_MODE in protocol/hid.h. An unrecognized opcode just
- * leaves the controls alone rather than guessing. Reads on a background
- * thread so a slow/unplugged mouse can't freeze the window -- see
- * lighting_fetch_thread()/lighting_fetch_apply() and the comment on
- * App::hid_lock. */
-void refresh_lighting(App *app)
+static void on_speed(int i, gpointer user_data)
 {
-    if (!app->connected)
-        return;
-    if (app->lighting_fetch_pending)
-        return;
-    app->lighting_fetch_pending = TRUE;
-    g_thread_unref(g_thread_new("ajazzy-lighting-fetch", lighting_fetch_thread, app));
-}
-
-/* The visible effect picker is a plain GtkListBox on the left; the
- * pre-existing app->rgb_effect AdwComboRow still holds the actual
- * "selected effect" state (every other function in this file reads/sets
- * it), it's just never shown -- keeping it as the single source of truth
- * means on_rgb_apply()/lighting_fetch_apply() need no changes at all. */
-static void on_rgb_listbox_row_selected(GtkListBox *box, GtkListBoxRow *row, gpointer user_data)
-{
-    (void)box;
     App *app = user_data;
-    if (!row)
-        return;
-    adw_combo_row_set_selected(app->rgb_effect, (guint)gtk_list_box_row_get_index(row));
+    if (loading) return;
+    app->light.speed = i;
+    commit_now(app);
 }
 
-/* Keeps the left-column listbox in sync whenever app->rgb_effect's
- * selection changes programmatically (device fetch applying real state,
- * or the software colour-cycle path) rather than by clicking a row. */
-static GtkListBox *g_rgb_listbox;
-static void sync_rgb_listbox_from_combo(App *app)
+static void on_steady_color(GObject *btn, GParamSpec *p, gpointer user_data)
 {
-    if (!g_rgb_listbox)
-        return;
-    guint sel = adw_combo_row_get_selected(app->rgb_effect);
-    GtkListBoxRow *row = gtk_list_box_get_row_at_index(g_rgb_listbox, (int)sel);
-    if (row)
-        gtk_list_box_select_row(g_rgb_listbox, row);
+    (void)p;
+    App *app = user_data;
+    if (loading) return;
+    ui_rgb_from_rgba(app->light.color, gtk_color_dialog_button_get_rgba(GTK_COLOR_DIALOG_BUTTON(btn)));
+    ui_debounce_poke(L.apply_deb);
 }
 
-/* Lighting preset tile: sets the effect combo + brightness/colour to the
- * preset's fixed values and immediately applies (on_rgb_apply()), same
- * as picking the effect from the list and clicking Apply by hand. For a
- * constant-colour preset, the colour is sent via the DPI indicator
- * colour command (see the file comment -- that's the LED "constant
- * colour" mode lights). */
-static void on_lighting_preset_clicked(GtkButton *btn, gpointer user_data)
+static void on_pal_color(GObject *btn, GParamSpec *p, gpointer user_data)
 {
-    (void)btn;
-    App *app = ((gpointer *)user_data)[0];
-    guint idx = GPOINTER_TO_UINT(((gpointer *)user_data)[1]);
-    static const struct { guint effect; uint8_t r, g, b; } presets[] = {
-        {RGB_CONSTANT, 255, 40, 40}, {RGB_CONSTANT, 40, 220, 90},
-        {RGB_CONSTANT, 60, 110, 255}, {RGB_RAINBOW, 0, 0, 0},
+    (void)p;
+    gpointer *d = user_data;
+    App *app = d[0];
+    int i = GPOINTER_TO_INT(d[1]);
+    if (loading) return;
+    ui_rgb_from_rgba(app->light.palette[i], gtk_color_dialog_button_get_rgba(GTK_COLOR_DIALOG_BUTTON(btn)));
+    ui_debounce_poke(L.apply_deb);
+}
+
+static void on_pal_count(GObject *row, GParamSpec *p, gpointer user_data)
+{
+    (void)p;
+    App *app = user_data;
+    if (loading) return;
+    app->light.palette_n = (int)adw_spin_row_get_value(ADW_SPIN_ROW(row));
+    update_visibility(app);
+    ui_debounce_poke(L.apply_deb);
+}
+
+static void on_transition(GObject *row, GParamSpec *p, gpointer user_data)
+{
+    (void)p;
+    App *app = user_data;
+    if (loading) return;
+    app->light.soft_transition = (int)adw_combo_row_get_selected(ADW_COMBO_ROW(row));
+    ui_debounce_poke(L.apply_deb);
+}
+
+static void on_multicolour(GtkButton *b, gpointer user_data)
+{
+    (void)b;
+    App *app = user_data;
+    for (int i = 0; i < LIGHT_PALETTE_MAX; i++)
+        memcpy(app->light.palette[i], AJAZZ_LIGHT_DEFAULT_PALETTE[i], 3);
+    app->light.palette_n = LIGHT_PALETTE_MAX;
+    sync_ui(app);
+    commit_now(app);
+}
+
+/* ---------------- animated previews ---------------- */
+
+static void rounded_rect(cairo_t *cr, double x, double y, double w, double h, double r)
+{
+    cairo_new_sub_path(cr);
+    cairo_arc(cr, x + w - r, y + r, r, -G_PI_2, 0);
+    cairo_arc(cr, x + w - r, y + h - r, r, 0, G_PI_2);
+    cairo_arc(cr, x + r, y + h - r, r, G_PI_2, G_PI);
+    cairo_arc(cr, x + r, y + r, r, G_PI, 3 * G_PI_2);
+    cairo_close_path(cr);
+}
+
+static void draw_preview(GtkDrawingArea *area, cairo_t *cr, int w, int h, gpointer data)
+{
+    (void)area;
+    gpointer *d = data;
+    App *app = d[0];
+    int fx = GPOINTER_TO_INT(d[1]);
+    const AppLight *l = &app->light;
+    double t = g_get_monotonic_time() / 1e6;
+
+    rounded_rect(cr, 0, 0, w, h, 10);
+    cairo_clip(cr);
+    cairo_set_source_rgb(cr, 0.05, 0.05, 0.07);
+    cairo_paint(cr);
+
+    uint8_t rgb[3];
+    switch (fx) {
+        case LFX_OFF:
+            cairo_set_source_rgba(cr, 1, 1, 1, 0.08);
+            cairo_arc(cr, w / 2.0, h / 2.0, 3, 0, 2 * G_PI);
+            cairo_fill(cr);
+            return;
+        case LFX_STEADY: {
+            cairo_set_source_rgb(cr, l->color[0] / 255.0, l->color[1] / 255.0, l->color[2] / 255.0);
+            cairo_paint(cr);
+            break;
+        }
+        case LFX_BREATHING: {
+            int n = l->palette_n < 1 ? 1 : l->palette_n;
+            double period = 2.4;
+            int idx = (int)(t / period) % n;
+            double a = 0.5 - 0.5 * cos(2 * G_PI * fmod(t, period) / period);
+            memcpy(rgb, l->palette[idx], 3);
+            cairo_set_source_rgba(cr, rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0, 0.12 + 0.88 * a);
+            cairo_paint(cr);
+            break;
+        }
+        case LFX_FLOW:
+            for (int x = 0; x < w; x += 3) {
+                hsv_to_rgb(x * 1.6 - t * 120, rgb);
+                double a = 0.35 + 0.65 * (0.5 + 0.5 * sin(x * 0.07 - t * 5));
+                cairo_set_source_rgba(cr, rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0, a);
+                cairo_rectangle(cr, x, 0, 3, h);
+                cairo_fill(cr);
+            }
+            break;
+        case LFX_NEON: {
+            hsv_to_rgb(t * 80, rgb);
+            double pulse = 0.55 + 0.45 * sin(t * 4);
+            cairo_set_source_rgba(cr, rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0, 0.20 * pulse);
+            cairo_paint(cr);
+            cairo_set_source_rgba(cr, rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0, 0.95);
+            cairo_set_line_width(cr, 3);
+            rounded_rect(cr, 6, 6, w - 12, h - 12, 8);
+            cairo_stroke(cr);
+            break;
+        }
+        case LFX_WAVE:
+            for (int x = 0; x < w; x += 3) {
+                hsv_to_rgb(x * 2.2 - t * 90, rgb);
+                double y = h / 2.0 + sin(x * 0.09 - t * 4) * h * 0.28;
+                cairo_set_source_rgba(cr, rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0, 0.95);
+                cairo_rectangle(cr, x, y - 4, 3, 8);
+                cairo_fill(cr);
+            }
+            break;
+        case LFX_SOFT_CYCLE:
+            hsv_to_rgb(t * 60, rgb);
+            cairo_set_source_rgb(cr, rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0);
+            cairo_paint(cr);
+            break;
+        case LFX_SOFT_FADE: {
+            AppLight tmp = *l;
+            tmp.effect = LFX_SOFT_FADE;
+            soft_color_at(&tmp, fmod(t / 6.0, 1.0), rgb);
+            cairo_set_source_rgb(cr, rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0);
+            cairo_paint(cr);
+            break;
+        }
+    }
+}
+
+static gboolean preview_tick(GtkWidget *w, GdkFrameClock *clock, gpointer user_data)
+{
+    (void)clock; (void)user_data;
+    for (int i = 0; i < LFX_COUNT; i++)
+        gtk_widget_queue_draw(L.fx_prev[i]);
+    (void)w;
+    return G_SOURCE_CONTINUE;
+}
+
+/* ---------------- presets ---------------- */
+
+typedef struct { const char *name; AppLight l; } BuiltinPreset;
+
+static void builtin_presets(BuiltinPreset out[], int *n)
+{
+    int k = 0;
+    AppLight base;
+    default_light(&base);
+
+    struct { const char *name; int fx; uint8_t rgb[3]; } steady[] = {
+        {N_("Crimson"), LFX_STEADY, {0xe8, 0x39, 0x4a}},
+        {N_("Ocean"), LFX_STEADY, {0x1e, 0x90, 0xff}},
+        {N_("Mint"), LFX_STEADY, {0x2f, 0xd2, 0x7a}},
+        {N_("White"), LFX_STEADY, {0xff, 0xff, 0xff}},
     };
-    if (idx >= G_N_ELEMENTS(presets)) return;
-
-    adw_combo_row_set_selected(app->rgb_effect, presets[idx].effect);
-    adw_spin_row_set_value(app->rgb_brightness, 4);
-
-    if (presets[idx].effect == RGB_CONSTANT && ensure_connected(app)) {
-        for (int i = 0; i < AJAZZ_DPI_STAGES; i++) {
-            app->dpi_color_cache[i][0] = presets[idx].r;
-            app->dpi_color_cache[i][1] = presets[idx].g;
-            app->dpi_color_cache[i][2] = presets[idx].b;
-        }
-        ajazz_report_t req;
-        ajazz_build_set_dpi_colors(&req, app->dpi_color_cache);
-        ajazz_send_and_wait_mt(app, &req, 1000);
+    for (guint i = 0; i < G_N_ELEMENTS(steady); i++, k++) {
+        out[k].name = steady[i].name;
+        out[k].l = base;
+        out[k].l.effect = steady[i].fx;
+        memcpy(out[k].l.color, steady[i].rgb, 3);
     }
-    on_rgb_apply(NULL, app);
+    out[k].name = N_("Rainbow breathing");
+    out[k].l = base;
+    out[k].l.effect = LFX_BREATHING;
+    k++;
+    out[k].name = N_("Violet breathing");
+    out[k].l = base;
+    out[k].l.effect = LFX_BREATHING;
+    out[k].l.palette_n = 1;
+    out[k].l.palette[0][0] = 0xa0; out[k].l.palette[0][1] = 0x20; out[k].l.palette[0][2] = 0xf0;
+    k++;
+    out[k].name = N_("Cyan breathing");
+    out[k].l = base;
+    out[k].l.effect = LFX_BREATHING;
+    out[k].l.palette_n = 1;
+    out[k].l.palette[0][0] = 0x00; out[k].l.palette[0][1] = 0xd1; out[k].l.palette[0][2] = 0xd1;
+    k++;
+    *n = k;
 }
 
-/* Public wrapper for gui/page_profiles.c -- see the declaration in
- * app.h. Sets the widgets to the saved values, same as picking them by
- * hand, then reuses on_rgb_apply() so the actual send/soft-effect-start
- * logic isn't duplicated. */
-void lighting_apply_profile(App *app, int effect, int brightness, int speed, const uint8_t color[3])
+static void on_preset_clicked(GtkButton *b, gpointer user_data)
 {
-    /* Custom (its whole colour sequence, not just one colour) isn't
-     * representable through this single-colour signature -- profiles
-     * and the hardcoded preset shortcuts don't carry a colour list, so
-     * a saved Custom effect can't be restored through this path.
-     * Custom's own presets (page_lighting.c's on_custom_preset_clicked)
-     * bypass this function entirely for that reason. */
-    if (effect < RGB_OFF || effect > RGB_SOFT_COLORCYCLE)
-        return;
-    adw_combo_row_set_selected(app->rgb_effect, (guint)effect);
-    adw_spin_row_set_value(app->rgb_brightness, brightness);
-    adw_spin_row_set_value(app->rgb_speed, speed);
-    if (color && app->rgb_soft_color_btn) {
-        app->rgb_soft_color[0] = color[0];
-        app->rgb_soft_color[1] = color[1];
-        app->rgb_soft_color[2] = color[2];
-        GdkRGBA rgba = {color[0] / 255.0f, color[1] / 255.0f, color[2] / 255.0f, 1.0f};
-        g_signal_handlers_block_matched(app->rgb_soft_color_btn, G_SIGNAL_MATCH_FUNC,
-            0, 0, NULL, G_CALLBACK(on_rgb_soft_color_changed), NULL);
-        gtk_color_dialog_button_set_rgba(app->rgb_soft_color_btn, &rgba);
-        g_signal_handlers_unblock_matched(app->rgb_soft_color_btn, G_SIGNAL_MATCH_FUNC,
-            0, 0, NULL, G_CALLBACK(on_rgb_soft_color_changed), NULL);
-    }
-    update_rgb_row_visibility(app);
-    sync_rgb_listbox_from_combo(app);
-    on_rgb_apply(NULL, app);
+    App *app = user_data;
+    const AppLight *l = g_object_get_data(G_OBJECT(b), "light");
+    if (!l) return;
+    app->light = *l;
+    sync_ui(app);
+    commit_now(app);
 }
 
-/* Applies a custom saved preset -- same idea as on_lighting_preset_clicked()
- * above, just reading {effect, colour, brightness, speed} from a JSON
- * file instead of a hardcoded C array. Reuses lighting_apply_profile()
- * (see app.h) so this file only has ONE place that actually pokes the
- * effect/brightness/speed/colour widgets and calls on_rgb_apply(). */
-static void on_custom_preset_clicked(GtkButton *btn, gpointer user_data)
+static char *presets_dir(void) { return ajazzy_config_subdir("lighting"); }
+
+static void preset_save_file(const char *name, const AppLight *l)
 {
-    (void)btn;
-    gpointer *data = user_data;
-    App *app = data[0];
-    char *path = data[1];
-
-    char *text = json_read_file(path);
-    if (!text) { toast(app, _("Failed to read that preset.")); return; }
-
-    int effect = json_get_int(text, "effect", RGB_CONSTANT);
-    int brightness = json_get_int(text, "brightness", 4);
-    int speed = json_get_int(text, "speed", 2);
-
-    if (effect == RGB_SOFT_CUSTOM) {
-        /* Custom presets carry a whole colour list, which
-         * lighting_apply_profile()'s single-colour signature can't
-         * take -- set every widget by hand here instead. */
-        int flat[24] = {0};
-        int n = json_get_int_array(text, "custom_colors", flat, 24) / 3;
-        if (n > 8) n = 8;
-        int transition = json_get_int(text, "transition", 0);
-        g_free(text);
-
-        if (n <= 0) { toast(app, _("That preset has no colours saved.")); return; }
-
-        app->rgb_custom_count = n;
-        for (int i = 0; i < n; i++) {
-            app->rgb_custom_colors[i][0] = (uint8_t)flat[i * 3 + 0];
-            app->rgb_custom_colors[i][1] = (uint8_t)flat[i * 3 + 1];
-            app->rgb_custom_colors[i][2] = (uint8_t)flat[i * 3 + 2];
-        }
-        app->rgb_custom_transition = transition;
-        rebuild_custom_swatches(app);
-        adw_combo_row_set_selected(app->rgb_custom_transition_row, (guint)transition);
-        adw_combo_row_set_selected(app->rgb_effect, RGB_SOFT_CUSTOM);
-        adw_spin_row_set_value(app->rgb_brightness, brightness);
-        adw_spin_row_set_value(app->rgb_speed, speed);
-        on_rgb_apply(NULL, app);
-        return;
-    }
-
-    int color_ints[3] = {255, 255, 255};
-    json_get_int_array(text, "color", color_ints, 3);
-    uint8_t color[3] = {(uint8_t)color_ints[0], (uint8_t)color_ints[1], (uint8_t)color_ints[2]};
-    g_free(text);
-
-    lighting_apply_profile(app, effect, brightness, speed, color);
-}
-
-static void free_gpointer_pair_lighting(gpointer data, GClosure *closure)
-{
-    (void)closure;
-    gpointer *pair = data;
-    g_free(pair[1]);
-    g_free(pair);
-}
-
-/* Scans ~/.config/ajazzy/lighting_presets/ for saved preset JSON files and appends one tile per
- * file to g_lighting_presets_row, after the 4 hardcoded ones -- called
- * once at page build and again after saving a new preset. */
-static void populate_custom_presets(App *app)
-{
-    /* Remove any previously-added custom tiles (marked via this data key)
-     * before repopulating, so re-saving doesn't duplicate them. */
-    GtkWidget *child = gtk_widget_get_first_child(g_lighting_presets_row);
-    while (child) {
-        GtkWidget *next = gtk_widget_get_next_sibling(child);
-        if (g_object_get_data(G_OBJECT(child), "ajazzy-custom-preset"))
-            gtk_box_remove(GTK_BOX(g_lighting_presets_row), child);
-        child = next;
-    }
-
-    char *dir = ajazzy_config_subdir("lighting_presets");
+    char *dir = presets_dir();
     if (!dir) return;
-    GDir *gdir = g_dir_open(dir, 0, NULL);
-    if (!gdir) { g_free(dir); return; }
+    char *safe = g_strdup(name);
+    for (char *p = safe; *p; p++) if (*p == '/' || *p == '\\') *p = '_';
+    char *fn = g_strdup_printf("%s.json", safe);
+    char *path = g_build_filename(dir, fn, NULL);
 
-    const char *entry;
-    while ((entry = g_dir_read_name(gdir))) {
-        if (!g_str_has_suffix(entry, ".json"))
-            continue;
-        char *path = g_build_filename(dir, entry, NULL);
-        char *text = json_read_file(path);
-        if (!text) { g_free(path); continue; }
+    GString *o = g_string_new("{\n  ");
+    json_put_string(o, "name", name); g_string_append(o, ",\n  ");
+    json_put_int(o, "effect", l->effect); g_string_append(o, ",\n  ");
+    json_put_int(o, "brightness", l->brightness); g_string_append(o, ",\n  ");
+    json_put_int(o, "speed", l->speed); g_string_append(o, ",\n  ");
+    json_put_int(o, "transition", l->soft_transition); g_string_append(o, ",\n  ");
+    json_put_int(o, "palette_n", l->palette_n); g_string_append(o, ",\n  ");
+    int col[3] = {l->color[0], l->color[1], l->color[2]};
+    json_put_int_array(o, "color", col, 3); g_string_append(o, ",\n  ");
+    int pal[LIGHT_PALETTE_MAX * 3];
+    for (int i = 0; i < LIGHT_PALETTE_MAX; i++)
+        for (int c = 0; c < 3; c++) pal[i * 3 + c] = l->palette[i][c];
+    json_put_int_array(o, "palette", pal, LIGHT_PALETTE_MAX * 3);
+    g_string_append(o, "\n}\n");
+    json_write_file(path, o->str);
+    g_string_free(o, TRUE);
+    g_free(path); g_free(fn); g_free(safe); g_free(dir);
+}
 
-        char name[64];
-        if (!json_get_string(text, "name", name, sizeof(name)))
-            g_strlcpy(name, entry, sizeof(name));
-        g_free(text);
+static gboolean preset_load_file(const char *file, char *name, size_t nlen, AppLight *l)
+{
+    char *dir = presets_dir();
+    if (!dir) return FALSE;
+    char *path = g_build_filename(dir, file, NULL);
+    char *t = json_read_file(path);
+    g_free(path); g_free(dir);
+    if (!t) return FALSE;
+    default_light(l);
+    json_get_string(t, "name", name, nlen);
+    l->effect = json_get_int(t, "effect", LFX_STEADY);
+    if (l->effect < 0 || l->effect >= LFX_COUNT) l->effect = LFX_STEADY;
+    l->brightness = json_get_int(t, "brightness", 4);
+    l->speed = json_get_int(t, "speed", 2);
+    l->soft_transition = json_get_int(t, "transition", 0);
+    l->palette_n = json_get_int(t, "palette_n", LIGHT_PALETTE_MAX);
+    if (l->palette_n < 1 || l->palette_n > LIGHT_PALETTE_MAX) l->palette_n = LIGHT_PALETTE_MAX;
+    int col[3] = {255, 0, 0};
+    json_get_int_array(t, "color", col, 3);
+    for (int c = 0; c < 3; c++) l->color[c] = (uint8_t)col[c];
+    int pal[LIGHT_PALETTE_MAX * 3] = {0};
+    if (json_get_int_array(t, "palette", pal, LIGHT_PALETTE_MAX * 3) > 0)
+        for (int i = 0; i < LIGHT_PALETTE_MAX; i++)
+            for (int c = 0; c < 3; c++) l->palette[i][c] = (uint8_t)pal[i * 3 + c];
+    g_free(t);
+    return TRUE;
+}
 
-        GtkWidget *tile = gtk_button_new();
-        gtk_widget_add_css_class(tile, "flat");
-        g_object_set_data(G_OBJECT(tile), "ajazzy-custom-preset", GINT_TO_POINTER(1));
-        GtkWidget *tbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
-        GtkWidget *icon = gtk_image_new_from_icon_name("starred-symbolic");
-        GtkWidget *name_lbl = gtk_label_new(name);
-        GtkWidget *type_lbl = gtk_label_new(_("Custom preset"));
-        gtk_widget_add_css_class(type_lbl, "dim-label");
-        gtk_widget_add_css_class(type_lbl, "caption");
-        gtk_box_append(GTK_BOX(tbox), icon);
-        gtk_box_append(GTK_BOX(tbox), name_lbl);
-        gtk_box_append(GTK_BOX(tbox), type_lbl);
-        gtk_button_set_child(GTK_BUTTON(tile), tbox);
+static void populate_presets(App *app);
 
-        gpointer *data = g_new(gpointer, 2);
-        data[0] = app;
-        data[1] = path; /* owned by the closure now */
-        g_signal_connect_data(tile, "clicked", G_CALLBACK(on_custom_preset_clicked), data, free_gpointer_pair_lighting, 0);
-        gtk_box_append(GTK_BOX(g_lighting_presets_row), tile);
+static void on_preset_delete(GtkButton *b, gpointer user_data)
+{
+    App *app = user_data;
+    const char *file = g_object_get_data(G_OBJECT(b), "file");
+    char *dir = presets_dir();
+    if (dir && file) {
+        char *p = g_build_filename(dir, file, NULL);
+        g_remove(p);
+        g_free(p);
     }
-    g_dir_close(gdir);
+    g_free(dir);
+    populate_presets(app);
+}
+
+static GtkWidget *preset_chip(App *app, const char *label, const AppLight *l, const char *file)
+{
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_add_css_class(box, "linked");
+    GtkWidget *b = gtk_button_new();
+    GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    GtkWidget *sw = gtk_drawing_area_new();
+    gtk_widget_set_size_request(sw, 14, 14);
+    gtk_widget_set_valign(sw, GTK_ALIGN_CENTER);
+    gtk_widget_set_halign(sw, GTK_ALIGN_CENTER);
+    AppLight *copy = g_new(AppLight, 1);
+    *copy = *l;
+    g_object_set_data_full(G_OBJECT(b), "light", copy, g_free);
+    gtk_box_append(GTK_BOX(row), sw);
+    gtk_box_append(GTK_BOX(row), gtk_label_new(label));
+    gtk_button_set_child(GTK_BUTTON(b), row);
+    gtk_widget_add_css_class(b, "aj-btn");
+    gtk_widget_add_css_class(b, "aj-btn-secondary");
+    g_signal_connect(b, "clicked", G_CALLBACK(on_preset_clicked), app);
+    gtk_box_append(GTK_BOX(box), b);
+
+    /* swatch: colour the preset leads with */
+    const uint8_t *c = (l->effect == LFX_STEADY || l->effect == LFX_OFF) ? l->color : l->palette[0];
+    char css[96];
+    char name[32];
+    snprintf(name, sizeof(name), "pre%p", (void *)sw);
+    gtk_widget_set_name(sw, name);
+    snprintf(css, sizeof(css), "#%s { background: #%02x%02x%02x; border-radius: 99px; }", name, c[0], c[1], c[2]);
+    GtkCssProvider *prov = gtk_css_provider_new();
+    gtk_css_provider_load_from_string(prov, css);
+    gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(prov),
+        GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    g_object_unref(prov);
+
+    if (file) {
+        GtkWidget *del = gtk_button_new_from_icon_name("window-close-symbolic");
+        gtk_widget_add_css_class(del, "aj-btn");
+        gtk_widget_add_css_class(del, "aj-btn-secondary");
+        gtk_widget_set_tooltip_text(del, _("Delete this preset"));
+        g_object_set_data_full(G_OBJECT(del), "file", g_strdup(file), g_free);
+        g_signal_connect(del, "clicked", G_CALLBACK(on_preset_delete), app);
+        gtk_box_append(GTK_BOX(box), del);
+    }
+    return box;
+}
+
+static void populate_presets(App *app)
+{
+    GtkWidget *c;
+    while ((c = gtk_widget_get_first_child(L.presets_box)))
+        gtk_flow_box_remove(GTK_FLOW_BOX(L.presets_box), c);
+
+    BuiltinPreset bp[16];
+    int n = 0;
+    builtin_presets(bp, &n);
+    for (int i = 0; i < n; i++)
+        gtk_flow_box_append(GTK_FLOW_BOX(L.presets_box), preset_chip(app, gettext(bp[i].name), &bp[i].l, NULL));
+
+    char *dir = presets_dir();
+    GDir *d = dir ? g_dir_open(dir, 0, NULL) : NULL;
+    if (d) {
+        const char *e;
+        while ((e = g_dir_read_name(d))) {
+            if (!g_str_has_suffix(e, ".json")) continue;
+            char name[64] = "";
+            AppLight l;
+            if (!preset_load_file(e, name, sizeof(name), &l)) continue;
+            gtk_flow_box_append(GTK_FLOW_BOX(L.presets_box), preset_chip(app, name[0] ? name : e, &l, e));
+        }
+        g_dir_close(d);
+    }
     g_free(dir);
 }
 
-static GtkWidget *g_save_preset_name_entry;
-static void on_save_lighting_preset_dialog_response(AdwAlertDialog *dialog, const char *response, gpointer user_data)
+static GtkWidget *g_save_entry;
+static void on_save_preset_response(AdwAlertDialog *dlg, const char *resp, gpointer user_data)
 {
-    (void)dialog;
+    (void)dlg;
     App *app = user_data;
-    if (strcmp(response, "save") != 0)
-        return;
-    const char *name = gtk_editable_get_text(GTK_EDITABLE(g_save_preset_name_entry));
-    if (!name || !*name) { toast(app, _("Enter a preset name.")); return; }
-
-    char *dir = ajazzy_config_subdir("lighting_presets");
-    if (!dir) { toast(app, _("Failed to save the preset.")); return; }
-    char *safe_name = g_strdup(name);
-    for (char *p = safe_name; *p; p++)
-        if (*p == '/' || *p == '\\') *p = '_';
-    char *filename = g_strdup_printf("%s.json", safe_name);
-    char *path = g_build_filename(dir, filename, NULL);
-
-    GString *out = g_string_new("{\n  ");
-    json_put_string(out, "name", name); g_string_append(out, ",\n  ");
-    json_put_int(out, "effect", (int)adw_combo_row_get_selected(app->rgb_effect)); g_string_append(out, ",\n  ");
-    json_put_int(out, "brightness", (int)adw_spin_row_get_value(app->rgb_brightness)); g_string_append(out, ",\n  ");
-    json_put_int(out, "speed", (int)adw_spin_row_get_value(app->rgb_speed)); g_string_append(out, ",\n  ");
-    int color_ints[3] = {app->rgb_soft_color[0], app->rgb_soft_color[1], app->rgb_soft_color[2]};
-    json_put_int_array(out, "color", color_ints, 3);
-    if ((int)adw_combo_row_get_selected(app->rgb_effect) == RGB_SOFT_CUSTOM) {
-        g_string_append(out, ",\n  ");
-        int flat[24];
-        for (int i = 0; i < app->rgb_custom_count; i++) {
-            flat[i * 3 + 0] = app->rgb_custom_colors[i][0];
-            flat[i * 3 + 1] = app->rgb_custom_colors[i][1];
-            flat[i * 3 + 2] = app->rgb_custom_colors[i][2];
-        }
-        json_put_int_array(out, "custom_colors", flat, app->rgb_custom_count * 3);
-        g_string_append(out, ",\n  ");
-        json_put_int(out, "transition", app->rgb_custom_transition);
-    }
-    g_string_append(out, "\n}\n");
-
-    gboolean ok = json_write_file(path, out->str);
-    g_string_free(out, TRUE);
-    g_free(dir); g_free(safe_name); g_free(filename); g_free(path);
-
-    toast(app, ok ? _("Preset saved.") : _("Failed to save the preset."));
-    if (ok)
-        populate_custom_presets(app);
+    if (strcmp(resp, "save") != 0) return;
+    const char *name = gtk_editable_get_text(GTK_EDITABLE(g_save_entry));
+    if (!name || !*name) { toast(app, _("Give the preset a name.")); return; }
+    preset_save_file(name, &app->light);
+    populate_presets(app);
+    toast(app, _("Preset saved."));
 }
 
-static void on_save_lighting_preset_clicked(GtkButton *btn, gpointer user_data)
+static void on_save_preset(GtkButton *b, gpointer user_data)
 {
-    (void)btn;
+    (void)b;
     App *app = user_data;
-    AdwAlertDialog *dialog = ADW_ALERT_DIALOG(adw_alert_dialog_new(
-        _("Save as preset"),
-        _("Saves the current effect, brightness, speed and colour as a one-click preset, stored on this PC.")));
-    g_save_preset_name_entry = gtk_entry_new();
-    gtk_entry_set_placeholder_text(GTK_ENTRY(g_save_preset_name_entry), _("Preset name"));
-    adw_alert_dialog_set_extra_child(dialog, g_save_preset_name_entry);
-    adw_alert_dialog_add_response(dialog, "cancel", _("Cancel"));
-    adw_alert_dialog_add_response(dialog, "save", _("Save"));
-    adw_alert_dialog_set_response_appearance(dialog, "save", ADW_RESPONSE_SUGGESTED);
-    adw_alert_dialog_set_default_response(dialog, "save");
-    adw_alert_dialog_set_close_response(dialog, "cancel");
-    g_signal_connect(dialog, "response", G_CALLBACK(on_save_lighting_preset_dialog_response), app);
-    adw_dialog_present(ADW_DIALOG(dialog), GTK_WIDGET(app->win));
+    AdwAlertDialog *dlg = ADW_ALERT_DIALOG(adw_alert_dialog_new(_("Save lighting preset"),
+        _("Saves the current effect, colours, brightness and speed.")));
+    g_save_entry = gtk_entry_new();
+    gtk_entry_set_placeholder_text(GTK_ENTRY(g_save_entry), _("Preset name"));
+    gtk_entry_set_activates_default(GTK_ENTRY(g_save_entry), TRUE);
+    adw_alert_dialog_set_extra_child(dlg, g_save_entry);
+    adw_alert_dialog_add_response(dlg, "cancel", _("Cancel"));
+    adw_alert_dialog_add_response(dlg, "save", _("Save"));
+    adw_alert_dialog_set_response_appearance(dlg, "save", ADW_RESPONSE_SUGGESTED);
+    adw_alert_dialog_set_default_response(dlg, "save");
+    adw_alert_dialog_set_close_response(dlg, "cancel");
+    g_signal_connect(dlg, "response", G_CALLBACK(on_save_preset_response), app);
+    adw_dialog_present(ADW_DIALOG(dlg), GTK_WIDGET(app->win));
+}
+
+/* ---------------- refresh ---------------- */
+
+typedef struct {
+    gboolean ok, parsed;
+    ajazz_report_t reply;
+} LFetch;
+
+static void lfetch_work(App *app, gpointer d)
+{
+    LFetch *f = d;
+    f->ok = ajazz_query_mt(app, AJAZZ_QUERY_LED_MODE, &f->reply, 1000) == 0;
+}
+
+static void lfetch_done(App *app, gpointer d)
+{
+    LFetch *f = d;
+    if (!app->connected || !f->ok || soft_timer)
+        return; /* a running software effect owns the display */
+    ajazz_light_state_t st;
+    if (ajazz_parse_light(&f->reply, &st) != 0)
+        return;
+    AppLight *l = &app->light;
+    if (l->palette_n < 1)
+        default_light(l);
+    switch (st.mode) {
+        case AJAZZ_LIGHT_OFF:       l->effect = LFX_OFF; break;
+        case AJAZZ_LIGHT_STEADY:    l->effect = LFX_STEADY; memcpy(l->color, st.rgb, 3); break;
+        case AJAZZ_LIGHT_BREATHING: l->effect = LFX_BREATHING; collapse_palette(st.palette, l); break;
+        case AJAZZ_LIGHT_FLOW:      l->effect = LFX_FLOW; break;
+        case AJAZZ_LIGHT_NEON:      l->effect = LFX_NEON; break;
+        case AJAZZ_LIGHT_WAVE:      l->effect = LFX_WAVE; break;
+    }
+    if (st.mode != AJAZZ_LIGHT_OFF) {
+        l->brightness = st.brightness;
+        l->speed = st.speed;
+    }
+    sync_ui(app);
+    refresh_home(app);
+}
+
+void refresh_lighting(App *app)
+{
+    update_visibility(app);
+    if (!app->connected)
+        return;
+    app_async(app, lfetch_work, lfetch_done, g_new0(LFetch, 1), g_free);
+}
+
+/* ---------------- page ---------------- */
+
+static GtkWidget *seg_row(const char *title, const char *sub, GtkWidget *seg)
+{
+    return GTK_WIDGET(ui_row_new(title, sub, seg));
 }
 
 GtkWidget *build_lighting_page(App *app)
 {
-    GtkWidget *page = adw_preferences_page_new();
+    default_light(&app->light);
 
-    AdwPreferencesGroup *group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
-    adw_preferences_group_set_title(group, _("RGB lighting"));
-    adw_preferences_group_set_description(group,
-        _("\"Off\" and \"Constant colour\" work exactly as shown. The others animate the light live from this app -- they stop if it closes."));
+    GtkWidget *save = ui_button_new(_("Save preset"), "document-save-symbolic", "secondary");
+    g_signal_connect(save, "clicked", G_CALLBACK(on_save_preset), app);
 
-    /* backing model for the actual selection -- not shown, see the
-     * comment on on_rgb_listbox_row_selected() above */
-    app->rgb_effect = ADW_COMBO_ROW(adw_combo_row_new());
-    const char *effect_names[] = {N_("Off"), N_("Colour cycle (built-in)"), N_("Constant colour"),
-                                   N_("Breathing"), N_("Rainbow"), N_("Custom"), NULL};
-    const char *effect_names_tr[RGB_EFFECT_COUNT + 1];
-    for (int i = 0; i < RGB_EFFECT_COUNT; i++) effect_names_tr[i] = gettext(effect_names[i]);
-    effect_names_tr[RGB_EFFECT_COUNT] = NULL;
-    adw_combo_row_set_model(app->rgb_effect, G_LIST_MODEL(gtk_string_list_new(effect_names_tr)));
+    GtkWidget *body;
+    GtkWidget *page = ui_page_new(_("Lighting"),
+        _("Pick an effect \xE2\x80\x94 it applies to the mouse immediately."), save, &body);
 
-    GtkWidget *columns = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+    L.apply_deb = ui_debounce_new(300, apply_deb_fire, app);
 
-    /* left column: effect list */
-    GtkWidget *left_card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
-    gtk_widget_add_css_class(left_card, "ajazz-card");
-    gtk_widget_set_size_request(left_card, 220, -1);
-    GtkWidget *left_title = gtk_label_new(_("Effect"));
-    gtk_widget_add_css_class(left_title, "ajazz-card-title");
-    gtk_widget_set_halign(left_title, GTK_ALIGN_START);
-    gtk_box_append(GTK_BOX(left_card), left_title);
-
-    GtkWidget *listbox = gtk_list_box_new();
-    gtk_widget_add_css_class(listbox, "boxed-list");
-    g_rgb_listbox = GTK_LIST_BOX(listbox);
-    for (int i = 0; i < RGB_EFFECT_COUNT; i++) {
-        GtkWidget *row = gtk_list_box_row_new();
-        GtkWidget *lbl = gtk_label_new(effect_names_tr[i]);
-        gtk_widget_set_halign(lbl, GTK_ALIGN_START);
-        gtk_widget_set_margin_top(lbl, 8);
-        gtk_widget_set_margin_bottom(lbl, 8);
-        gtk_widget_set_margin_start(lbl, 10);
-        gtk_widget_set_margin_end(lbl, 10);
-        gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), lbl);
-        gtk_list_box_append(GTK_LIST_BOX(listbox), row);
+    GtkWidget *cb;
+    GtkWidget *card = ui_card_new(_("Effect"), NULL, &cb);
+    GtkWidget *flow = gtk_flow_box_new();
+    gtk_flow_box_set_selection_mode(GTK_FLOW_BOX(flow), GTK_SELECTION_NONE);
+    gtk_flow_box_set_homogeneous(GTK_FLOW_BOX(flow), TRUE);
+    gtk_flow_box_set_min_children_per_line(GTK_FLOW_BOX(flow), 2);
+    gtk_flow_box_set_max_children_per_line(GTK_FLOW_BOX(flow), 4);
+    gtk_flow_box_set_row_spacing(GTK_FLOW_BOX(flow), 10);
+    gtk_flow_box_set_column_spacing(GTK_FLOW_BOX(flow), 10);
+    GtkToggleButton *first = NULL;
+    for (int i = 0; i < LFX_COUNT; i++) {
+        GtkWidget *b = gtk_toggle_button_new();
+        gtk_widget_add_css_class(b, "aj-effect");
+        if (first) gtk_toggle_button_set_group(GTK_TOGGLE_BUTTON(b), first);
+        else first = GTK_TOGGLE_BUTTON(b);
+        GtkWidget *v = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+        GtkWidget *pv = gtk_drawing_area_new();
+        gtk_widget_set_size_request(pv, 150, 58);
+        gtk_widget_set_margin_top(pv, 8); gtk_widget_set_margin_start(pv, 8); gtk_widget_set_margin_end(pv, 8);
+        gpointer *dd = g_new(gpointer, 2);
+        dd[0] = app; dd[1] = GINT_TO_POINTER(i);
+        gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(pv), draw_preview, dd, g_free);
+        GtkWidget *name = gtk_label_new(gettext(FX[i].name));
+        gtk_widget_add_css_class(name, "aj-effect-name");
+        gtk_widget_set_halign(name, GTK_ALIGN_START);
+        gtk_widget_set_margin_start(name, 12); gtk_widget_set_margin_top(name, 8);
+        GtkWidget *note = gtk_label_new(FX[i].software ? _("Software \xC2\xB7 needs Ajazzy open") : gettext(FX[i].note));
+        gtk_widget_add_css_class(note, "aj-effect-note");
+        gtk_widget_set_halign(note, GTK_ALIGN_START);
+        gtk_label_set_xalign(GTK_LABEL(note), 0);
+        gtk_label_set_wrap(GTK_LABEL(note), TRUE);
+        gtk_widget_set_margin_start(note, 12); gtk_widget_set_margin_end(note, 8); gtk_widget_set_margin_bottom(note, 10);
+        gtk_box_append(GTK_BOX(v), pv);
+        gtk_box_append(GTK_BOX(v), name);
+        gtk_box_append(GTK_BOX(v), note);
+        gtk_button_set_child(GTK_BUTTON(b), v);
+        L.fx_btn[i] = b;
+        L.fx_prev[i] = pv;
+        gpointer *cd = g_new(gpointer, 2);
+        cd[0] = app; cd[1] = GINT_TO_POINTER(i);
+        g_signal_connect_data(b, "toggled", G_CALLBACK(on_fx_toggled), cd, free_closure_data, 0);
+        gtk_flow_box_append(GTK_FLOW_BOX(flow), b);
     }
-    g_signal_connect(listbox, "row-selected", G_CALLBACK(on_rgb_listbox_row_selected), app);
-    gtk_box_append(GTK_BOX(left_card), listbox);
-    gtk_box_append(GTK_BOX(columns), left_card);
+    gtk_box_append(GTK_BOX(cb), ui_card_pad(flow));
+    gtk_box_append(GTK_BOX(body), card);
+    L.tick_id = gtk_widget_add_tick_callback(flow, preview_tick, NULL, NULL);
 
-    /* right column: detail panel for whichever effect is selected */
-    GtkWidget *right_card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
-    gtk_widget_add_css_class(right_card, "ajazz-card");
-    gtk_widget_set_hexpand(right_card, TRUE);
-    GtkWidget *right_title = gtk_label_new(_("Settings"));
-    gtk_widget_add_css_class(right_title, "ajazz-card-title");
-    gtk_widget_set_halign(right_title, GTK_ALIGN_START);
-    gtk_box_append(GTK_BOX(right_card), right_title);
+    /* ---- settings for the chosen effect ---- */
+    card = ui_card_new(_("Settings"), NULL, &cb);
+    GtkWidget *list = ui_list_new();
 
-    GtkWidget *detail_list = gtk_list_box_new();
-    gtk_widget_add_css_class(detail_list, "boxed-list");
+    const char *bri[] = {"0", "25%", "50%", "75%", "100%"};
+    L.bri_seg = ui_segmented_new(bri, 5, 4, on_bri, app);
+    L.bri_row = seg_row(_("Brightness"), NULL, L.bri_seg);
+    gtk_list_box_append(GTK_LIST_BOX(list), L.bri_row);
 
-    app->rgb_brightness = ADW_SPIN_ROW(adw_spin_row_new_with_range(0, 4, 1));
-    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(app->rgb_brightness), _("Brightness"));
-    adw_action_row_set_subtitle(ADW_ACTION_ROW(app->rgb_brightness), _("0 to 4 (25% steps)"));
-    adw_spin_row_set_value(app->rgb_brightness, 4);
-    gtk_list_box_append(GTK_LIST_BOX(detail_list), GTK_WIDGET(app->rgb_brightness));
+    const char *spd[] = {"1", "2", "3", "4", "5"};
+    L.speed_seg = ui_segmented_new(spd, 5, 2, on_speed, app);
+    L.speed_row = seg_row(_("Speed"), _("1 is slowest, 5 is fastest."), L.speed_seg);
+    gtk_list_box_append(GTK_LIST_BOX(list), L.speed_row);
 
-    app->rgb_speed = ADW_SPIN_ROW(adw_spin_row_new_with_range(0, 4, 1));
-    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(app->rgb_speed), _("Speed"));
-    adw_spin_row_set_value(app->rgb_speed, 2);
-    app->rgb_speed_row = ADW_ACTION_ROW(app->rgb_speed);
-    gtk_list_box_append(GTK_LIST_BOX(detail_list), GTK_WIDGET(app->rgb_speed));
+    L.steady_btn = gtk_color_dialog_button_new(gtk_color_dialog_new());
+    g_signal_connect(L.steady_btn, "notify::rgba", G_CALLBACK(on_steady_color), app);
+    L.steady_row = GTK_WIDGET(ui_row_new(_("Colour"), NULL, L.steady_btn));
+    gtk_list_box_append(GTK_LIST_BOX(list), L.steady_row);
 
-    /* Breathing's base colour -- only this effect needs one; rainbow and
-     * colour cycle already sweep every hue, and constant/off reuse
-     * whatever the DPI page's indicator colour already has. */
-    app->rgb_soft_color[0] = 0xe8; app->rgb_soft_color[1] = 0x39; app->rgb_soft_color[2] = 0x4a; /* accent red */
-    AdwActionRow *soft_color_row = ADW_ACTION_ROW(adw_action_row_new());
-    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(soft_color_row), _("Colour"));
-    GtkColorDialog *soft_dialog = gtk_color_dialog_new();
-    GtkWidget *soft_color_btn = gtk_color_dialog_button_new(soft_dialog);
-    GdkRGBA soft_rgba = {app->rgb_soft_color[0] / 255.0f, app->rgb_soft_color[1] / 255.0f,
-        app->rgb_soft_color[2] / 255.0f, 1.0f};
-    gtk_color_dialog_button_set_rgba(GTK_COLOR_DIALOG_BUTTON(soft_color_btn), &soft_rgba);
-    gtk_widget_set_valign(soft_color_btn, GTK_ALIGN_CENTER);
-    app->rgb_soft_color_btn = GTK_COLOR_DIALOG_BUTTON(soft_color_btn);
-    g_signal_connect(soft_color_btn, "notify::rgba", G_CALLBACK(on_rgb_soft_color_changed), app);
-    adw_action_row_add_suffix(soft_color_row, soft_color_btn);
-    app->rgb_soft_color_row = soft_color_row;
-    gtk_list_box_append(GTK_LIST_BOX(detail_list), GTK_WIDGET(soft_color_row));
-
-    /* Custom effect: build a colour sequence by picking a colour above
-     * and adding it here, then choose how it plays back. */
-    AdwActionRow *custom_row = ADW_ACTION_ROW(adw_action_row_new());
-    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(custom_row), _("Sequence"));
-    adw_action_row_set_subtitle(custom_row, _("Pick a colour above, then tap + to add it. Tap a swatch to remove it."));
-    GtkWidget *seq_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-    gtk_widget_set_valign(seq_box, GTK_ALIGN_CENTER);
-    app->rgb_custom_swatches_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
-    gtk_box_append(GTK_BOX(seq_box), app->rgb_custom_swatches_box);
-    GtkWidget *add_color_btn = gtk_button_new_from_icon_name("list-add-symbolic");
-    gtk_widget_add_css_class(add_color_btn, "circular");
-    g_signal_connect(add_color_btn, "clicked", G_CALLBACK(on_custom_add_color_clicked), app);
-    gtk_box_append(GTK_BOX(seq_box), add_color_btn);
-    adw_action_row_add_suffix(custom_row, seq_box);
-    app->rgb_custom_row = custom_row;
-    gtk_list_box_append(GTK_LIST_BOX(detail_list), GTK_WIDGET(custom_row));
-
-    app->rgb_custom_transition_row = ADW_COMBO_ROW(adw_combo_row_new());
-    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(app->rgb_custom_transition_row), _("Playback"));
-    const char *transition_names[] = {N_("Fade between colours"), N_("Hard cut"), NULL};
-    const char *transition_names_tr[3] = {gettext(transition_names[0]), gettext(transition_names[1]), NULL};
-    adw_combo_row_set_model(app->rgb_custom_transition_row, G_LIST_MODEL(gtk_string_list_new(transition_names_tr)));
-    g_signal_connect(app->rgb_custom_transition_row, "notify::selected", G_CALLBACK(on_custom_transition_changed), app);
-    gtk_list_box_append(GTK_LIST_BOX(detail_list), GTK_WIDGET(app->rgb_custom_transition_row));
-
-    gtk_box_append(GTK_BOX(right_card), detail_list);
-
-    GtkWidget *apply_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-    gtk_widget_set_margin_top(apply_row, 8);
-
-    GtkWidget *btn_apply = gtk_button_new_with_label(_("Apply to mouse"));
-    gtk_widget_add_css_class(btn_apply, "suggested-action");
-    gtk_widget_add_css_class(btn_apply, "pill");
-    gtk_widget_add_css_class(btn_apply, "ajazz-cta");
-    gtk_widget_set_hexpand(btn_apply, TRUE);
-    g_signal_connect(btn_apply, "clicked", G_CALLBACK(on_rgb_apply), app);
-    gtk_box_append(GTK_BOX(apply_row), btn_apply);
-
-    GtkWidget *btn_save_preset = gtk_button_new_with_label(_("Save as preset"));
-    gtk_widget_add_css_class(btn_save_preset, "pill");
-    g_signal_connect(btn_save_preset, "clicked", G_CALLBACK(on_save_lighting_preset_clicked), app);
-    gtk_box_append(GTK_BOX(apply_row), btn_save_preset);
-
-    gtk_box_append(GTK_BOX(right_card), apply_row);
-
-    gtk_box_append(GTK_BOX(columns), right_card);
-    adw_preferences_group_add(group, columns);
-
-    /* Info banner: "off"/"rainbow"/"constant" are real firmware modes
-     * stored on the mouse (confirmed against real hardware -- see
-     * AJAZZ_QUERY_LED_MODE in protocol/hid.h); "software colour cycle" is
-     * not, see the file comment at the top. This distinguishes the two
-     * groups without a separate tabbed UI, since there are only 4 total
-     * effects -- a full hardware/software tab switcher would be more
-     * chrome than content for a list this short. */
-    GtkWidget *hw_note = gtk_label_new(
-        _("\"Off\", rainbow cycle and constant colour are stored in the mouse and work without the software running; breathing and colour cycle need Ajazzy open."));
-    gtk_widget_add_css_class(hw_note, "dim-label");
-    gtk_widget_add_css_class(hw_note, "caption");
-    gtk_label_set_wrap(GTK_LABEL(hw_note), TRUE);
-    gtk_widget_set_halign(hw_note, GTK_ALIGN_START);
-    adw_preferences_group_add(group, hw_note);
-
-    adw_preferences_page_add(ADW_PREFERENCES_PAGE(page), group);
-
-    /* Lighting presets: a handful of hardcoded one-click shortcuts (fixed
-     * colour + effect) plus any custom ones saved from this page's "Save
-     * as preset" button -- see on_save_lighting_preset_clicked() and
-     * populate_custom_presets() below. Custom presets are plain JSON
-     * files under ~/.config/ajazzy/lighting_presets/ (see jsonutil.h/
-     * gui/page_profiles.c for the same mechanism used for full profiles);
-     * this is purely an app-side convenience, not something the mouse's
-     * protocol has any storage for. */
-    AdwPreferencesGroup *presets_group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
-    adw_preferences_group_set_title(presets_group, _("Lighting presets"));
-    GtkWidget *presets_card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
-    gtk_widget_add_css_class(presets_card, "ajazz-card");
-    GtkWidget *presets_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-    g_lighting_presets_row = presets_row;
-    static const struct { const char *name; guint effect; uint8_t r, g, b; } presets[] = {
-        {N_("Red"),     RGB_CONSTANT, 255, 40, 40},
-        {N_("Green"),   RGB_CONSTANT, 40, 220, 90},
-        {N_("Blue"),    RGB_CONSTANT, 60, 110, 255},
-        {N_("Rainbow"), RGB_RAINBOW,  0, 0, 0},
-    };
-    for (guint i = 0; i < G_N_ELEMENTS(presets); i++) {
-        GtkWidget *tile = gtk_button_new();
-        gtk_widget_add_css_class(tile, "flat");
-        GtkWidget *tbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
-        GtkWidget *swatch = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-        gtk_widget_set_size_request(swatch, 48, 14);
-        /* Reuses the same ajazz-dpi-N swatch colours as the DPI stage
-         * buttons/palette (see main.c's CSS) rather than a one-off
-         * per-widget provider -- red/green/blue map onto stages 1/2/3. */
-        if (presets[i].effect == RGB_CONSTANT) {
-            static const char *swatch_class[] = {"ajazz-dpi-1", "ajazz-dpi-2", "ajazz-dpi-3"};
-            gtk_widget_add_css_class(swatch, swatch_class[i % 3]);
-        } else {
-            gtk_widget_add_css_class(swatch, "ajazz-dpi-6");
-        }
-        GtkWidget *name_lbl = gtk_label_new(gettext(presets[i].name));
-        GtkWidget *type_lbl = gtk_label_new(presets[i].effect == RGB_RAINBOW ? _("Hardware effect") : _("Constant colour"));
-        gtk_widget_add_css_class(type_lbl, "dim-label");
-        gtk_widget_add_css_class(type_lbl, "caption");
-        gtk_box_append(GTK_BOX(tbox), swatch);
-        gtk_box_append(GTK_BOX(tbox), name_lbl);
-        gtk_box_append(GTK_BOX(tbox), type_lbl);
-        gtk_button_set_child(GTK_BUTTON(tile), tbox);
-
-        gpointer *data = g_new(gpointer, 2);
-        data[0] = app;
-        data[1] = GUINT_TO_POINTER(i);
-        g_signal_connect_data(tile, "clicked", G_CALLBACK(on_lighting_preset_clicked), data, free_closure_data, 0);
-        gtk_box_append(GTK_BOX(presets_row), tile);
+    /* palette editor (breathing + custom fade) */
+    GtkWidget *pal = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    for (int i = 0; i < LIGHT_PALETTE_MAX; i++) {
+        L.pal_btn[i] = gtk_color_dialog_button_new(gtk_color_dialog_new());
+        gpointer *pd = g_new(gpointer, 2);
+        pd[0] = app; pd[1] = GINT_TO_POINTER(i);
+        g_signal_connect_data(L.pal_btn[i], "notify::rgba", G_CALLBACK(on_pal_color), pd, free_closure_data, 0);
+        gtk_box_append(GTK_BOX(pal), L.pal_btn[i]);
     }
-    populate_custom_presets(app);
-    gtk_box_append(GTK_BOX(presets_card), presets_row);
-    adw_preferences_group_add(presets_group, presets_card);
-    adw_preferences_page_add(ADW_PREFERENCES_PAGE(page), presets_group);
+    L.palette_row = GTK_WIDGET(ui_row_new(_("Colours"), _("Used one after another."), pal));
+    gtk_list_box_append(GTK_LIST_BOX(list), L.palette_row);
 
-    /* now that the listbox exists, wire the combo row's own selection
-     * changes (device fetch, software-cycle apply) back into it, on top
-     * of the visibility logic it already drove */
-    g_signal_connect(app->rgb_effect, "notify::selected", G_CALLBACK(on_rgb_effect_changed), app);
-    adw_combo_row_set_selected(app->rgb_effect, RGB_RAINBOW);
-    sync_rgb_listbox_from_combo(app);
-    update_rgb_row_visibility(app);
+    L.pal_count = ADW_SPIN_ROW(adw_spin_row_new_with_range(1, LIGHT_PALETTE_MAX, 1));
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(L.pal_count), _("Number of colours"));
+    g_signal_connect(L.pal_count, "notify::value", G_CALLBACK(on_pal_count), app);
+    gtk_list_box_append(GTK_LIST_BOX(list), GTK_WIDGET(L.pal_count));
 
+    AdwComboRow *tr = ADW_COMBO_ROW(adw_combo_row_new());
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(tr), _("Transition"));
+    const char *trn[] = {_("Smooth fade"), _("Hard cut"), NULL};
+    adw_combo_row_set_model(tr, G_LIST_MODEL(gtk_string_list_new(trn)));
+    g_signal_connect(tr, "notify::selected", G_CALLBACK(on_transition), app);
+    L.transition_row = GTK_WIDGET(tr);
+    gtk_list_box_append(GTK_LIST_BOX(list), L.transition_row);
+
+    GtkWidget *note = gtk_label_new(_("Software effects run only while Ajazzy is open, and they keep the mouse's radio busy, "
+        "which costs battery. Pick a built-in effect to save power. Your DPI indicator colours are restored when you switch away."));
+    gtk_widget_add_css_class(note, "aj-callout");
+    gtk_label_set_wrap(GTK_LABEL(note), TRUE);
+    gtk_label_set_xalign(GTK_LABEL(note), 0);
+    gtk_widget_set_margin_start(note, 6); gtk_widget_set_margin_end(note, 6); gtk_widget_set_margin_bottom(note, 8);
+    L.soft_note = note;
+
+    gtk_box_append(GTK_BOX(cb), list);
+    gtk_box_append(GTK_BOX(cb), note);
+
+    GtkWidget *mc = ui_button_new(_("Use the multicolour set"), "emblem-default-symbolic", "ghost");
+    gtk_widget_set_halign(mc, GTK_ALIGN_START);
+    gtk_widget_set_margin_start(mc, 6); gtk_widget_set_margin_bottom(mc, 8);
+    g_signal_connect(mc, "clicked", G_CALLBACK(on_multicolour), app);
+    gtk_box_append(GTK_BOX(cb), mc);
+    gtk_box_append(GTK_BOX(body), card);
+
+    /* ---- presets ---- */
+    card = ui_card_new(_("Presets"), _("One click to restore a look."), &cb);
+    L.presets_box = gtk_flow_box_new();
+    gtk_flow_box_set_selection_mode(GTK_FLOW_BOX(L.presets_box), GTK_SELECTION_NONE);
+    gtk_flow_box_set_row_spacing(GTK_FLOW_BOX(L.presets_box), 8);
+    gtk_flow_box_set_column_spacing(GTK_FLOW_BOX(L.presets_box), 8);
+    gtk_flow_box_set_max_children_per_line(GTK_FLOW_BOX(L.presets_box), 6);
+    gtk_box_append(GTK_BOX(cb), ui_card_pad(L.presets_box));
+    gtk_box_append(GTK_BOX(body), card);
+    populate_presets(app);
+
+    sync_ui(app);
     return page;
 }

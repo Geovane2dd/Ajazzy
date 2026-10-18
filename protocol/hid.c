@@ -34,13 +34,14 @@ void ajazz_build_query(ajazz_report_t *r, uint8_t query_id)
     ajazz_finalize(r);
 }
 
-void ajazz_build_set_dpi_table(ajazz_report_t *r, const uint16_t dpi[AJAZZ_DPI_STAGES], uint8_t active_stage_0based)
+void ajazz_build_set_dpi_table(ajazz_report_t *r, const uint16_t dpi[AJAZZ_DPI_STAGES], uint8_t active_stage_0based,
+    uint8_t count_nibble)
 {
     ajazz_init(r, AJAZZ_FAM_DPI_TABLE, 0x01, 0x25);
 
-    /* high nibble = active stage (0-based); low nibble is a constant
-     * AJAZZ_DPI_STAGES - 1 */
-    r->payload[0] = (uint8_t)((active_stage_0based << 4) | (AJAZZ_DPI_STAGES - 1));
+    /* high nibble = active stage (0-based); low nibble = the driver's
+     * "dpi_count" (decompiled: (dpi_index << 4) | dpi_count) */
+    r->payload[0] = (uint8_t)((active_stage_0based << 4) | (count_nibble & 0x0F));
 
     for (int i = 0; i < AJAZZ_DPI_STAGES; i++) {
         uint16_t raw = dpi[i] / 100; /* device stores dpi/100 */
@@ -87,37 +88,55 @@ void ajazz_build_set_report_rate(ajazz_report_t *r, uint8_t rate_index)
     ajazz_finalize(r);
 }
 
-void ajazz_build_set_rgb_rainbow(ajazz_report_t *r, uint8_t brightness, uint8_t speed)
+const uint8_t AJAZZ_LIGHT_DEFAULT_PALETTE[AJAZZ_LIGHT_PALETTE][3] = {
+    {0xff, 0x00, 0x00}, /* red     */
+    {0x00, 0xff, 0x00}, /* green   */
+    {0x00, 0x00, 0xff}, /* blue    */
+    {0x00, 0xff, 0xff}, /* cyan    */
+    {0xff, 0xff, 0x00}, /* yellow  */
+    {0xff, 0x00, 0xff}, /* magenta */
+    {0xff, 0xff, 0xff}, /* white   */
+};
+
+static uint8_t light_bs(uint8_t brightness, uint8_t speed)
+{
+    if (brightness > 4) brightness = 4;
+    if (speed > 4) speed = 4;
+    return (uint8_t)((brightness << 4) | speed);
+}
+
+void ajazz_build_set_light_simple(ajazz_report_t *r, uint8_t mode, uint8_t brightness, uint8_t speed)
+{
+    /* mode 1 uses opcode 3, modes 0/4/5 opcode 2 (see hid.h) */
+    ajazz_init(r, AJAZZ_FAM_MISC, 0x01, mode == AJAZZ_LIGHT_FLOW ? 0x03 : 0x02);
+    r->payload[0] = mode;
+    r->payload[1] = light_bs(brightness, speed);
+    ajazz_finalize(r);
+}
+
+void ajazz_build_set_light_steady(ajazz_report_t *r, uint8_t brightness, uint8_t speed, const uint8_t rgb[3])
+{
+    ajazz_init(r, AJAZZ_FAM_MISC, 0x01, 0x05);
+    r->payload[0] = AJAZZ_LIGHT_STEADY;
+    r->payload[1] = light_bs(brightness, speed);
+    r->payload[2] = rgb[0];
+    r->payload[3] = rgb[1];
+    r->payload[4] = rgb[2];
+    ajazz_finalize(r);
+}
+
+void ajazz_build_set_light_breathing(ajazz_report_t *r, uint8_t brightness, uint8_t speed,
+    const uint8_t palette[AJAZZ_LIGHT_PALETTE][3])
 {
     ajazz_init(r, AJAZZ_FAM_MISC, 0x01, 0x18);
-    r->payload[0] = 0x02; /* rainbow/colorful cycle mode */
-    r->payload[1] = (uint8_t)((brightness << 4) | (speed & 0x0F));
-    r->payload[2] = 0x07; /* 7 colours in the palette below */
-
-    static const uint8_t palette[7][3] = {
-        {0xff, 0x00, 0x00}, /* red     */
-        {0x00, 0xff, 0x00}, /* green   */
-        {0x00, 0x00, 0xff}, /* blue    */
-        {0x00, 0xff, 0xff}, /* cyan    */
-        {0xff, 0xff, 0x00}, /* yellow  */
-        {0xff, 0x00, 0xff}, /* magenta */
-        {0xff, 0xff, 0xff}, /* white   */
-    };
-    for (int i = 0; i < 7; i++) {
+    r->payload[0] = AJAZZ_LIGHT_BREATHING;
+    r->payload[1] = light_bs(brightness, speed);
+    r->payload[2] = AJAZZ_LIGHT_PALETTE;
+    for (int i = 0; i < AJAZZ_LIGHT_PALETTE; i++) {
         r->payload[3 + i * 3 + 0] = palette[i][0];
         r->payload[3 + i * 3 + 1] = palette[i][1];
         r->payload[3 + i * 3 + 2] = palette[i][2];
     }
-
-    ajazz_finalize(r);
-}
-
-void ajazz_build_set_rgb_constant(ajazz_report_t *r, uint8_t brightness)
-{
-    ajazz_init(r, AJAZZ_FAM_MISC, 0x01, 0x05);
-    r->payload[0] = 0x03;
-    r->payload[1] = (uint8_t)((brightness << 4) | 0x02);
-    r->payload[2] = 0xff;
     ajazz_finalize(r);
 }
 
@@ -127,7 +146,34 @@ void ajazz_build_set_rgb_off(ajazz_report_t *r)
     ajazz_finalize(r);
 }
 
-void ajazz_build_sensor_from_query(ajazz_report_t *out, const ajazz_report_t *query_reply)
+int ajazz_parse_light(const ajazz_report_t *r, ajazz_light_state_t *out)
+{
+    memset(out, 0, sizeof(*out));
+    /* "off" reads back with opcode 0x01 and an empty payload */
+    if (r->opcode == 0x01 || (r->opcode == 0x02 && r->payload[0] == AJAZZ_LIGHT_OFF)) {
+        out->mode = AJAZZ_LIGHT_OFF;
+        return 0;
+    }
+    uint8_t mode = r->payload[0];
+    if (mode < AJAZZ_LIGHT_FLOW || mode > AJAZZ_LIGHT_WAVE)
+        return -1;
+    out->mode = mode;
+    out->brightness = r->payload[1] >> 4;
+    out->speed = r->payload[1] & 0x0F;
+    if (mode == AJAZZ_LIGHT_STEADY) {
+        memcpy(out->rgb, &r->payload[2], 3);
+    } else if (mode == AJAZZ_LIGHT_BREATHING) {
+        int n = r->payload[2];
+        if (n > AJAZZ_LIGHT_PALETTE) n = AJAZZ_LIGHT_PALETTE;
+        for (int i = 0; i < AJAZZ_LIGHT_PALETTE; i++) {
+            const uint8_t *src = &r->payload[3 + (i < n ? i : (n ? n - 1 : 0)) * 3];
+            memcpy(out->palette[i], src, 3);
+        }
+    }
+    return 0;
+}
+
+void ajazz_build_power_from_query(ajazz_report_t *out, const ajazz_report_t *query_reply)
 {
     *out = *query_reply;
     out->family = AJAZZ_FAM_SENSOR;
@@ -137,22 +183,46 @@ void ajazz_build_sensor_from_query(ajazz_report_t *out, const ajazz_report_t *qu
     ajazz_finalize(out);
 }
 
-void ajazz_sensor_set_sleep_seconds(ajazz_report_t *r, uint16_t seconds)
+void ajazz_power_set_sleep_seconds(ajazz_report_t *r, uint16_t seconds)
 {
     uint16_t tenths = seconds / 10;
     r->payload[0] = (uint8_t)(tenths > 0xFF ? 0xFF : tenths);
     ajazz_finalize(r);
 }
 
-void ajazz_sensor_set_liftoff(ajazz_report_t *r, uint8_t level)
+void ajazz_power_set_wake_on_motion(ajazz_report_t *r, uint8_t enabled)
 {
-    r->payload[1] = level;
+    r->payload[1] = enabled ? 1 : 0;
     ajazz_finalize(r);
 }
 
-void ajazz_sensor_set_light_idle_off(ajazz_report_t *r, uint8_t enabled)
+void ajazz_power_set_light_idle_off(ajazz_report_t *r, uint8_t enabled)
 {
-    r->payload[2] = enabled;
+    r->payload[2] = enabled ? 1 : 0;
+    ajazz_finalize(r);
+}
+
+void ajazz_power_set_debounce_ms(ajazz_report_t *r, uint8_t ms)
+{
+    r->payload[3] = ms;
+    ajazz_finalize(r);
+}
+
+void ajazz_parse_sensor_perf(const ajazz_report_t *r, ajazz_sensor_t *out)
+{
+    out->lift_off = r->payload[0] >= 2 ? 2 : 1;
+    out->angle_snap = r->payload[1] ? 1 : 0;
+    out->ripple_control = r->payload[2] ? 1 : 0;
+    out->motion_sync = r->payload[3] ? 1 : 0;
+}
+
+void ajazz_build_set_sensor_perf(ajazz_report_t *r, const ajazz_sensor_t *s)
+{
+    ajazz_init(r, AJAZZ_FAM_SENSOR_PERF, 0x01, 0x05);
+    r->payload[0] = s->lift_off >= 2 ? 2 : 1;
+    r->payload[1] = s->angle_snap ? 1 : 0;
+    r->payload[2] = s->ripple_control ? 1 : 0;
+    r->payload[3] = s->motion_sync ? 1 : 0;
     ajazz_finalize(r);
 }
 
@@ -236,17 +306,73 @@ void ajazz_key_slot_reset_default(ajazz_report_t *r, int slot)
 {
     int off = key_slot_offset(slot);
     if (off < 0) return;
-    r->payload[off + 0] = 0x10;
-    r->payload[off + 1] = (uint8_t)(1u << slot);
-    r->payload[off + 2] = 0x00;
+    if (slot == 5) { /* the DPI button */
+        r->payload[off + 0] = 0x40;
+        r->payload[off + 1] = 0x01;
+        r->payload[off + 2] = 0x00;
+    } else {
+        r->payload[off + 0] = 0x10;
+        r->payload[off + 1] = (uint8_t)(1u << slot);
+        r->payload[off + 2] = 0x00;
+    }
     ajazz_finalize(r);
 }
 
-void ajazz_build_macro_content(ajazz_report_t *r, const ajazz_macro_step_t *steps, int n_steps)
+static void slot_put(ajazz_report_t *r, int slot, uint8_t a, uint8_t b, uint8_t c)
+{
+    int off = key_slot_offset(slot);
+    if (off < 0) return;
+    r->payload[off + 0] = a;
+    r->payload[off + 1] = b;
+    r->payload[off + 2] = c;
+    ajazz_finalize(r);
+}
+
+void ajazz_key_slot_set_function(ajazz_report_t *r, int slot, ajazz_button_fn_t fn)
+{
+    switch (fn) {
+        case AJAZZ_BTN_LEFT:         slot_put(r, slot, 0x10, 0x01, 0x00); break;
+        case AJAZZ_BTN_MIDDLE:       slot_put(r, slot, 0x10, 0x04, 0x00); break;
+        case AJAZZ_BTN_RIGHT:        slot_put(r, slot, 0x10, 0x02, 0x00); break;
+        case AJAZZ_BTN_BACK:         slot_put(r, slot, 0x10, 0x08, 0x00); break;
+        case AJAZZ_BTN_FORWARD:      slot_put(r, slot, 0x10, 0x10, 0x00); break;
+        case AJAZZ_BTN_DOUBLE_CLICK: slot_put(r, slot, 0x30, 0x32, 0x03); break;
+        case AJAZZ_BTN_SCROLL_UP:    slot_put(r, slot, 0x20, 0x01, 0x00); break;
+        case AJAZZ_BTN_SCROLL_DOWN:  slot_put(r, slot, 0x20, 0xff, 0x00); break;
+        case AJAZZ_BTN_SCROLL_LEFT:  slot_put(r, slot, 0x10, 0x00, 0xf5); break;
+        case AJAZZ_BTN_SCROLL_RIGHT: slot_put(r, slot, 0x10, 0x00, 0xf6); break;
+        case AJAZZ_BTN_DPI_LOOP:     slot_put(r, slot, 0x40, 0x01, 0x00); break;
+        case AJAZZ_BTN_DPI_UP:       slot_put(r, slot, 0x40, 0x02, 0x00); break;
+        case AJAZZ_BTN_DPI_DOWN:     slot_put(r, slot, 0x40, 0x03, 0x00); break;
+        case AJAZZ_BTN_DISABLED:     slot_put(r, slot, 0x60, 0x00, 0x00); break;
+        default: break;
+    }
+}
+
+void ajazz_key_slot_set_system(ajazz_report_t *r, int slot, ajazz_system_fn_t fn)
+{
+    switch (fn) {
+        case AJAZZ_SYS_BRIGHTNESS_UP:   slot_put(r, slot, 0x80, 0x6f, 0x00); break;
+        case AJAZZ_SYS_BRIGHTNESS_DOWN: slot_put(r, slot, 0x80, 0x70, 0x00); break;
+        case AJAZZ_SYS_CALCULATOR:      slot_put(r, slot, 0x80, 0x92, 0x01); break;
+        case AJAZZ_SYS_MY_COMPUTER:     slot_put(r, slot, 0x80, 0x94, 0x01); break;
+        case AJAZZ_SYS_WEBSITE:         slot_put(r, slot, 0x80, 0x23, 0x02); break;
+        case AJAZZ_SYS_MAIL:            slot_put(r, slot, 0x80, 0x8a, 0x01); break;
+        case AJAZZ_SYS_SHOW_DESKTOP:    slot_put(r, slot, 0x70, 0x08, 0x07); break;
+        case AJAZZ_SYS_SWITCH_APP:      slot_put(r, slot, 0x70, 0x08, 0x2b); break;
+        case AJAZZ_SYS_COPY:            slot_put(r, slot, 0x70, 0x01, 0x06); break;
+        case AJAZZ_SYS_PASTE:           slot_put(r, slot, 0x70, 0x01, 0x19); break;
+        case AJAZZ_SYS_CUT:             slot_put(r, slot, 0x70, 0x01, 0x1b); break;
+        case AJAZZ_SYS_MEDIA_PLAYER:    slot_put(r, slot, 0x80, 0x83, 0x01); break;
+        default: break;
+    }
+}
+
+void ajazz_build_macro_content(ajazz_report_t *r, uint8_t key_index, const ajazz_macro_step_t *steps, int n_steps)
 {
     ajazz_init(r, AJAZZ_FAM_MACRO, 0x01, 0x00);
 
-    r->payload[0] = 0x03;
+    r->payload[0] = key_index;
     int len = 1;
     for (int i = 0; i < n_steps && i < AJAZZ_MACRO_MAX_STEPS; i++) {
         r->payload[len + 0] = steps[i].kind;
@@ -260,20 +386,20 @@ void ajazz_build_macro_content(ajazz_report_t *r, const ajazz_macro_step_t *step
     ajazz_finalize(r);
 }
 
-int ajazz_build_macro_content_chunked(ajazz_report_t *out, int max_out, const ajazz_macro_step_t *steps, int n_steps)
+int ajazz_build_macro_content_chunked(ajazz_report_t *out, int max_out, uint8_t key_index, const ajazz_macro_step_t *steps, int n_steps)
 {
     if (n_steps > AJAZZ_MACRO_MAX_CHUNKED_STEPS)
         return -1;
 
     if (n_steps <= AJAZZ_MACRO_MAX_STEPS) {
         if (max_out < 1) return -1;
-        ajazz_build_macro_content(&out[0], steps, n_steps);
+        ajazz_build_macro_content(&out[0], key_index, steps, n_steps);
         return 1;
     }
 
     uint8_t stream[1 + AJAZZ_MACRO_MAX_CHUNKED_STEPS * 4];
     int len = 0;
-    stream[len++] = 0x03;
+    stream[len++] = key_index;
     for (int i = 0; i < n_steps; i++) {
         stream[len++] = steps[i].kind;
         stream[len++] = (uint8_t)(steps[i].delay_ms & 0xFF);
@@ -310,13 +436,23 @@ int ajazz_build_macro_content_chunked(ajazz_report_t *out, int max_out, const aj
     return n_chunks;
 }
 
-void ajazz_key_slot_set_macro(ajazz_report_t *r, int slot)
+void ajazz_key_slot_set_macro(ajazz_report_t *r, int slot, ajazz_macro_loop_t loop, uint8_t loop_count)
 {
     int off = key_slot_offset(slot);
     if (off < 0) return;
+    uint8_t b1 = (uint8_t)slot;
+    uint8_t b2 = 0;
+    switch (loop) {
+        case AJAZZ_MACRO_WHILE_HELD:  b1 |= 0x10; break;
+        case AJAZZ_MACRO_UNTIL_CLICK: b1 |= 0x40; break;
+        case AJAZZ_MACRO_N_TIMES:
+            if (loop_count > 0) { b1 |= 0x20; b2 = loop_count; }
+            break;
+        default: break;
+    }
     r->payload[off + 0] = 0x90;
-    r->payload[off + 1] = 0x23;
-    r->payload[off + 2] = 0x01;
+    r->payload[off + 1] = b1;
+    r->payload[off + 2] = b2;
     ajazz_finalize(r);
 }
 
@@ -334,6 +470,11 @@ int ajazz_dpi_table_active_stage(const ajazz_report_t *r)
     return r->payload[0] >> 4;
 }
 
+int ajazz_dpi_table_count(const ajazz_report_t *r)
+{
+    return r->payload[0] & 0x0F;
+}
+
 int ajazz_report_rate_hz(uint8_t interval_ms)
 {
     switch (interval_ms) {
@@ -342,27 +483,6 @@ int ajazz_report_rate_hz(uint8_t interval_ms)
         case 2: return 500;
         case 1: return 1000;
         default: return 0;
-    }
-}
-
-int ajazz_parse_led_mode(const ajazz_report_t *r, ajazz_led_state_t *out)
-{
-    out->effect = r->opcode;
-    out->brightness = 0;
-    out->speed = 0;
-
-    switch (r->opcode) {
-        case AJAZZ_LED_OFF:
-            return 0;
-        case AJAZZ_LED_CONSTANT:
-            out->brightness = r->payload[1] >> 4;
-            return 0;
-        case AJAZZ_LED_RAINBOW:
-            out->brightness = r->payload[1] >> 4;
-            out->speed = r->payload[1] & 0x0F;
-            return 0;
-        default:
-            return -1;
     }
 }
 

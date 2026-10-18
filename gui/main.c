@@ -1,15 +1,13 @@
 /*
- * Ajazzy GUI, a GTK4/libadwaita front-end for ajazzyctl.
+ * Ajazzy -- app shell: window, sidebar navigation, connection manager.
  *
- * Built from native libadwaita widgets (AdwNavigationSplitView,
- * AdwPreferencesGroup/Row) rather than a hand-painted theme, so it
- * follows the user's system light/dark preference and accent colour
- * instead of forcing a fixed palette -- the only custom CSS left is for
- * things libadwaita has no row type for (DPI stage swatches, the button
- * marker overlay on the mouse diagram).
+ * The shell owns everything that is not a page: it finds the mouse (and
+ * notices when it goes away or comes back), decides whether to show a page
+ * or the "mouse not found" screen, and tells pages to refresh. Pages never
+ * open or close the device themselves.
  *
- * Every user-facing string goes through _() (gettext). English is the
- * source language; po/pt_BR.po has the Portuguese translation.
+ * Connection handling runs on a worker thread so a slow or half-dead hidraw
+ * node can never freeze the window.
  */
 
 #include <adwaita.h>
@@ -17,9 +15,13 @@
 #include <locale.h>
 #include <string.h>
 #include <unistd.h>
+#include <stdarg.h>
 
 #include "app.h"
 #include "../devices/device.h"
+#include <glib/gstdio.h>
+#include "../protocol/udev_rule.h"
+#define AJAZZ_UDEV_RULE_TEXT AJAZZ_UDEV_RULE
 
 #ifndef LOCALEDIR
 #define LOCALEDIR "locale"
@@ -28,381 +30,590 @@
 #define ICONDIR "gui/icons"
 #endif
 
-#define AJAZZ_APP_ICON "io.github.ajazzy.Gui"
+/* ---------------- small shared helpers ---------------- */
 
-/*
- * Ajazzy has its own brand identity (matching the app icon's red/orange
- * mouse mark on near-black, see gui/icons/io.github.ajazzy.Gui.svg)
- * rather than just inheriting whatever accent colour the user's system
- * theme happens to be set to. Redefining accent_color/accent_bg_color/
- * accent_fg_color at APPLICATION priority re-themes every stock
- * libadwaita "suggested-action" button, switch, and selection highlight
- * to match -- this is the single highest-leverage thing for making the
- * app feel like a distinct product instead of a generic GNOME settings
- * panel, since those widgets are used throughout every page.
- */
-static const char *CSS =
-    "@define-color accent_color #e8394a;"
-    "@define-color accent_bg_color #e8394a;"
-    "@define-color accent_fg_color #ffffff;"
-    "@define-color ajazz_bg_deep #0d0d0f;"
-    "@define-color ajazz_panel #111114;"
-    "@define-color ajazz_surface #18181b;"
-    "@define-color ajazz_border #2a2a2e;"
-
-    "window.background, .background { background-color: @ajazz_bg_deep; }"
-
-    "* { border-radius: 6px; }"
-
-    ".ajazz-dpi-btn { border-radius: 6px; padding: 10px; font-weight: 800; min-width: 76px;"
-    "  border: 3px solid transparent; box-shadow: 0 1px 3px rgba(0,0,0,0.4); transition: all 150ms ease; }"
-    ".ajazz-dpi-btn.selected { border: 3px solid @accent_color;"
-    "  box-shadow: 0 0 0 2px alpha(@accent_color, 0.35), 0 0 18px 2px alpha(@accent_color, 0.55); }"
-    /* matching the mouse's own confirmed per-DPI-stage indicator LED
-     * colours (query 0x14, see docs/reverse-engineering.md): red, green,
-     * blue, cyan, yellow, magenta -- not arbitrary decoration, this is
-     * literally what the hardware lights up for each stage. */
-    ".ajazz-dpi-1 { background-color: #ff3b3b; color: white; }"
-    ".ajazz-dpi-2 { background-color: #2ecc40; color: black; }"
-    ".ajazz-dpi-3 { background-color: #3b6bff; color: white; }"
-    ".ajazz-dpi-4 { background-color: #00d1d1; color: black; }"
-    ".ajazz-dpi-5 { background-color: #ffd400; color: black; }"
-    ".ajazz-dpi-6 { background-color: #e838e8; color: white; }"
-
-    ".ajazz-marker { min-width: 27px; min-height: 27px; border-radius: 14px;"
-    "  font-size: 11px; font-weight: 800; padding: 0;"
-    "  background-color: alpha(#000, 0.55); color: #fff; border: 1.5px solid alpha(#fff, 0.4); }"
-    ".ajazz-marker.selected { background-color: @accent_bg_color; color: @accent_fg_color;"
-    "  border-color: #fff; box-shadow: 0 0 0 3px alpha(@accent_bg_color, 0.4), 0 0 14px alpha(@accent_bg_color, 0.6); }"
-
-    /* ---- sidebar / nav rail ---- */
-    ".ajazz-sidebar-panel { background-color: @ajazz_panel;"
-    "  border-right: 1px solid @ajazz_border; }"
-    ".ajazz-sidebar-header { padding: 20px 16px 16px 16px; }"
-    ".ajazz-sidebar-title { font-size: 16px; font-weight: 900; letter-spacing: 3px; color: #fff; }"
-    ".ajazz-sidebar-subtitle { font-size: 10px; font-weight: 700; letter-spacing: 1px;"
-    "  text-transform: uppercase; opacity: 0.45; }"
-    ".navigation-sidebar { background-color: transparent; padding: 4px 0; }"
-    ".navigation-sidebar row { border-left: 3px solid transparent; border-radius: 0; margin: 0; padding: 0; }"
-    ".navigation-sidebar row:hover { background-color: alpha(#fff, 0.04); }"
-    ".navigation-sidebar row:selected { background-color: alpha(@accent_color, 0.14);"
-    "  border-left: 3px solid @accent_color; }"
-    ".navigation-sidebar row:selected label { font-weight: 700; color: #fff; }"
-    ".ajazz-nav-icon { opacity: 0.65; }"
-    ".navigation-sidebar row:selected .ajazz-nav-icon { opacity: 1; color: @accent_color; }"
-
-    /* ---- top bar ---- */
-    ".ajazz-topbar-device { font-weight: 800; font-size: 13px; }"
-
-    ".ajazz-status-connected { color: #37d67a; font-weight: 700; }"
-    ".ajazz-status-disconnected { color: #ff5c5c; font-weight: 700; }"
-    ".ajazz-status-dot { min-width: 8px; min-height: 8px; border-radius: 5px; margin: 0 2px; }"
-    ".ajazz-status-dot.connected { background-color: #37d67a; box-shadow: 0 0 6px #37d67a; }"
-    ".ajazz-status-dot.disconnected { background-color: #ff5c5c; }"
-
-    /* ---- card-style groups (used throughout every page in place of the
-     * default flat preferences-list look) ---- */
-    "preferencesgroup > box { background-color: @ajazz_surface;"
-    "  border: 1px solid @ajazz_border; border-radius: 8px; padding: 4px; }"
-    "preferencesgroup > box > box > listbox,"
-    "preferencesgroup > box > box > listbox row {"
-    "  background-color: transparent; }"
-    "preferencesgroup > box > box > label.title { letter-spacing: 0.5px; font-weight: 800;"
-    "  text-transform: uppercase; font-size: 11px; opacity: 0.65; margin: 6px 6px 2px 6px; }"
-    "preferencesgroup row { border-radius: 6px; }"
-    ".ajazz-cta { font-weight: 800; padding-left: 24px; padding-right: 24px; }"
-    "button.suggested-action.pill { box-shadow: 0 2px 14px alpha(@accent_color, 0.4); }"
-    "button, entry, .pill { border-radius: 6px; }"
-    ".pill { border-radius: 999px; }"
-
-    /* Home page hero */
-    ".ajazz-hero { border-radius: 8px; padding: 22px 26px;"
-    "  background-image: linear-gradient(135deg, alpha(@accent_color, 0.20), alpha(@accent_color, 0.02) 70%);"
-    "  border: 1px solid alpha(@accent_color, 0.3); }"
-    ".ajazz-hero-name { font-size: 22px; font-weight: 900; color: #fff; }"
-    ".ajazz-hero-sub { font-size: 12px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; opacity: 0.55; }"
-    ".ajazz-stat-label { font-size: 10px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; opacity: 0.5; }"
-    ".ajazz-stat-value { font-size: 15px; font-weight: 800; }"
-
-    /* card grid used on the Home page */
-    ".ajazz-card { background-color: @ajazz_surface; border: 1px solid @ajazz_border;"
-    "  border-radius: 8px; padding: 14px; }"
-    ".ajazz-card-title { font-size: 11px; font-weight: 800; letter-spacing: 0.5px;"
-    "  text-transform: uppercase; opacity: 0.65; margin-bottom: 4px; }"
-
-    /* Home dashboard stat cards -- the big red numbers */
-    ".ajazz-home-stat-value { font-size: 34px; font-weight: 900; color: @accent_color; }"
-    ".ajazz-home-stat-value-sm { font-size: 16px; font-weight: 900; color: @accent_color; }"
-
-    /* battery bars */
-    ".ajazz-batt-seg { min-width: 9px; min-height: 20px; border-radius: 2px;"
-    "  background-color: alpha(#fff, 0.12); }"
-    ".ajazz-batt-seg.lit { background-color: @accent_color; box-shadow: 0 0 8px alpha(@accent_color, 0.65); }"
-
-    /* tested/untested badges */
-    ".ajazz-badge { border-radius: 999px; padding: 3px 11px; font-size: 11px; font-weight: 800; letter-spacing: 0.3px; }"
-    ".ajazz-badge-green { background-color: alpha(#37d67a, 0.16); color: #37d67a; border: 1px solid alpha(#37d67a, 0.45); }"
-    ".ajazz-badge-yellow { background-color: alpha(#ffc93f, 0.16); color: #ffc93f; border: 1px solid alpha(#ffc93f, 0.45); }";
-
-GtkWidget *make_logo_widget(int size)
-{
-    GtkWidget *img = gtk_image_new_from_icon_name(AJAZZ_APP_ICON);
-    gtk_image_set_pixel_size(GTK_IMAGE(img), size);
-    return img;
-}
 void free_closure_data(gpointer data, GClosure *closure)
 {
     (void)closure;
     g_free(data);
 }
-static gboolean refresh_buttons_delayed_cb(gpointer user_data)
-{
-    refresh_buttons((App *)user_data);
-    return G_SOURCE_REMOVE;
-}
-
-void refresh_buttons_delayed(App *app)
-{
-    g_timeout_add(250, refresh_buttons_delayed_cb, app);
-}
-
-static gboolean refresh_macro_status_delayed_cb(gpointer user_data)
-{
-    refresh_macro_status((App *)user_data);
-    return G_SOURCE_REMOVE;
-}
-
-void refresh_macro_status_delayed(App *app)
-{
-    g_timeout_add(250, refresh_macro_status_delayed_cb, app);
-}
 
 void toast(App *app, const char *msg)
 {
+    if (!app->toast_overlay)
+        return;
     AdwToast *t = adw_toast_new(msg);
     adw_toast_set_timeout(t, 3);
     adw_toast_overlay_add_toast(app->toast_overlay, t);
 }
 
-/* Sets both a status-dot widget's colour and (if given) an accompanying
- * label's text/colour in one place, since the sidebar footer and the Home
- * hero both show the same connection state and should never disagree. */
-void set_status_widgets(GtkWidget *dot, GtkLabel *lbl, gboolean connected)
+void toastf(App *app, const char *fmt, ...)
 {
-    if (dot) {
-        gtk_widget_remove_css_class(dot, connected ? "disconnected" : "connected");
-        gtk_widget_add_css_class(dot, connected ? "connected" : "disconnected");
-    }
-    if (lbl) {
-        gtk_label_set_text(lbl, connected ? _("Connected") : _("Disconnected"));
-        gtk_widget_remove_css_class(GTK_WIDGET(lbl), connected ? "ajazz-status-disconnected" : "ajazz-status-connected");
-        gtk_widget_add_css_class(GTK_WIDGET(lbl), connected ? "ajazz-status-connected" : "ajazz-status-disconnected");
-    }
+    va_list ap;
+    va_start(ap, fmt);
+    char *msg = g_strdup_vprintf(fmt, ap);
+    va_end(ap);
+    toast(app, msg);
+    g_free(msg);
 }
 
-/* Always called on the main thread (never from a page's fetch GThread --
- * those only ever check app->connected, they don't reconnect). Takes
- * hid_lock around the close/reopen so it can't reassign app->dev.fd out
- * from under a fetch thread that's mid-query on the old fd -- see the
- * comment on App::hid_lock. */
-gboolean ensure_connected(App *app)
-{
-    if (app->connected) {
-        /* app->connected only ever means "we successfully opened it at
-         * some point" -- it doesn't notice an unplug in between, since
-         * there's no hotplug/udev watch. A dead hidraw node (unplugged,
-         * or replugged under a new /dev/hidrawN number) fails this
-         * check, so we close the stale handle and fall through to
-         * ajazz_open() to find the device again instead of getting
-         * stuck reporting "connected" forever. */
-        gboolean still_here = (access(app->dev.path, F_OK) == 0);
-
-        /* Separately: even if our current node is still there, a
-         * BETTER one may have appeared since we opened it -- plugging
-         * in the mouse's USB cable while an existing "2.4G" connection
-         * is open doesn't make the dongle's node disappear, so the
-         * access() check above alone would keep us talking to the
-         * dongle forever and never notice the cable (including for
-         * dev.charging, which would then also never flip to true).
-         * ajazz_best_path() is a cheap directory scan, safe to run on
-         * every call. */
-        char best_path[280];
-        int charging = 0;
-        gboolean better_available = FALSE;
-        if (still_here && ajazz_best_path(best_path, sizeof(best_path), &charging)) {
-            if (strcmp(best_path, app->dev.path) != 0)
-                better_available = TRUE;
-            else
-                app->dev.charging = charging; /* same interface, charging state may have changed */
-        }
-
-        if (still_here && !better_available)
-            return TRUE;
-
-        g_mutex_lock(&app->hid_lock);
-        ajazz_close(&app->dev);
-        g_mutex_unlock(&app->hid_lock);
-        app->connected = FALSE;
-        set_status_widgets(app->status_dot, app->status_lbl, FALSE);
-        set_status_widgets(app->hero_status_dot, app->hero_status_lbl, FALSE);
-        set_status_widgets(app->topbar_status_dot, app->topbar_status_lbl, FALSE);
-        if (app->topbar_device_lbl)
-            gtk_label_set_text(app->topbar_device_lbl, _("No device"));
-    }
-    g_mutex_lock(&app->hid_lock);
-    int rc = ajazz_open(&app->dev);
-    g_mutex_unlock(&app->hid_lock);
-    if (rc == 0) {
-        app->connected = TRUE;
-        set_status_widgets(app->status_dot, app->status_lbl, TRUE);
-        set_status_widgets(app->topbar_status_dot, app->topbar_status_lbl, TRUE);
-        if (app->topbar_device_lbl)
-            gtk_label_set_text(app->topbar_device_lbl, app->dev.name);
-        return TRUE;
-    }
-    toast(app, _("No AJAZZ mouse found. Check the connection and permissions."));
-    return FALSE;
-}
-
-/* ---------------- navigation / window chrome ---------------- */
+/* ---------------- async helper ---------------- */
 
 typedef struct {
-    const char *label;
-    const char *icon;
-    const char *page;
-} nav_item_t;
+    App *app;
+    AppWorkFn work;
+    AppDoneFn done;
+    gpointer data;
+    GDestroyNotify free_data;
+} AsyncJob;
 
-/* Re-reads whichever page is named, from the mouse, right now -- shared by
- * both the "switched to a different page" and "clicked the page that was
- * already open" paths below, so every page is always showing live state
- * rather than whatever was on screen when you last looked at it. */
-static void refresh_page(App *app, const char *page_name)
+static void async_thread(GTask *task, gpointer src, gpointer task_data, GCancellable *c)
 {
-    if (strcmp(page_name, "home") == 0)
-        refresh_home(app);
-    else if (strcmp(page_name, "config") == 0)
-        refresh_config(app);
-    else if (strcmp(page_name, "buttons") == 0)
-        refresh_buttons(app);
-    else if (strcmp(page_name, "macro") == 0)
-        refresh_macro_status(app);
-    else if (strcmp(page_name, "lighting") == 0)
-        refresh_lighting(app);
-    else if (strcmp(page_name, "profiles") == 0)
-        refresh_profiles(app);
+    (void)src; (void)c;
+    AsyncJob *j = task_data;
+    if (j->work)
+        j->work(j->app, j->data);
+    g_task_return_boolean(task, TRUE);
 }
 
-/* Selects the sidebar row for `page_name` and switches to it, same as a
- * manual click -- see the declaration in app.h for callers (Home's
- * per-card "go to this page" buttons). */
+static void async_finished(GObject *src, GAsyncResult *res, gpointer user_data)
+{
+    (void)src; (void)res;
+    AsyncJob *j = user_data;
+    if (j->done)
+        j->done(j->app, j->data);
+    if (j->free_data)
+        j->free_data(j->data);
+    g_free(j);
+}
+
+void app_async(App *app, AppWorkFn work, AppDoneFn done, gpointer data, GDestroyNotify free_data)
+{
+    AsyncJob *j = g_new0(AsyncJob, 1);
+    j->app = app;
+    j->work = work;
+    j->done = done;
+    j->data = data;
+    j->free_data = free_data;
+    GTask *task = g_task_new(NULL, NULL, async_finished, j);
+    g_task_set_task_data(task, j, NULL);
+    g_task_run_in_thread(task, async_thread);
+    g_object_unref(task);
+}
+
+/* ---------------- pages ---------------- */
+
+typedef struct {
+    const char *id;
+    const char *title;
+    const char *icon;
+    const char *group;   /* sidebar group label, shown above the first item of a group */
+    gboolean needs_device;
+    GtkWidget *(*build)(App *);
+    void (*refresh)(App *);
+} PageDef;
+
+static const PageDef PAGES[] = {
+    {"home",        N_("Overview"),    "go-home-symbolic",                  N_("Device"),    TRUE,  build_home_page,        refresh_home},
+    {"buttons",     N_("Buttons"),     "input-mouse-symbolic",              N_("Customise"), TRUE,  build_buttons_page,     refresh_buttons},
+    {"performance", N_("Performance"), "applications-engineering-symbolic", NULL,            TRUE,  build_performance_page, refresh_performance},
+    {"lighting",    N_("Lighting"),    "weather-clear-symbolic",            NULL,            TRUE,  build_lighting_page,    refresh_lighting},
+    {"macros",      N_("Macros"),      "input-keyboard-symbolic",           NULL,            TRUE,  build_macros_page,      refresh_macros},
+    {"profiles",    N_("Profiles"),    "document-save-symbolic",            N_("App"),       FALSE, build_profiles_page,    refresh_profiles},
+    {"settings",    N_("Settings"),    "emblem-system-symbolic",            NULL,            FALSE, build_settings_page,    NULL},
+};
+#define N_PAGES G_N_ELEMENTS(PAGES)
+
+static const PageDef *find_page(const char *id)
+{
+    for (guint i = 0; i < N_PAGES; i++)
+        if (strcmp(PAGES[i].id, id) == 0)
+            return &PAGES[i];
+    return NULL;
+}
+
+static void update_content_state(App *app)
+{
+    const PageDef *p = app->current_page ? find_page(app->current_page) : NULL;
+    gboolean offline = (p && p->needs_device && !app->connected);
+    gtk_stack_set_visible_child_name(app->content_stack, offline ? "offline" : "pages");
+}
+
+static void refresh_page(App *app, const char *id)
+{
+    const PageDef *p = find_page(id);
+    if (!p || !p->refresh)
+        return;
+    if (app->connected || !p->needs_device)
+        p->refresh(app);
+}
+
+void app_refresh_all(App *app)
+{
+    for (guint i = 0; i < N_PAGES; i++)
+        refresh_page(app, PAGES[i].id);
+}
+
 void switch_to_page(App *app, const char *page_name)
 {
-    if (!app->sidebar_list)
-        return;
-    guint n = 0;
-    for (GtkListBoxRow *row = gtk_list_box_get_row_at_index(app->sidebar_list, 0); row;
-         row = gtk_list_box_get_row_at_index(app->sidebar_list, ++n)) {
-        const char *p = g_object_get_data(G_OBJECT(row), "page");
-        if (p && strcmp(p, page_name) == 0) {
-            gtk_list_box_select_row(app->sidebar_list, row);
-            adw_view_stack_set_visible_child_name(app->stack, page_name);
-            refresh_page(app, page_name);
+    for (GtkWidget *c = gtk_widget_get_first_child(GTK_WIDGET(app->nav)); c; c = gtk_widget_get_next_sibling(c)) {
+        const char *rid = g_object_get_data(G_OBJECT(c), "page");
+        if (rid && strcmp(rid, page_name) == 0) {
+            gtk_list_box_select_row(app->nav, GTK_LIST_BOX_ROW(c));
             return;
         }
     }
 }
 
-static void on_sidebar_row_selected(GtkListBox *box, GtkListBoxRow *row, gpointer user_data)
+static void on_nav_row_selected(GtkListBox *box, GtkListBoxRow *row, gpointer user_data)
 {
     (void)box;
     App *app = user_data;
     if (!row)
         return;
-
-    const char *page_name = g_object_get_data(G_OBJECT(row), "page");
-    adw_view_stack_set_visible_child_name(app->stack, page_name);
-    refresh_page(app, page_name);
+    const char *id = g_object_get_data(G_OBJECT(row), "page");
+    if (!id)
+        return;
+    const PageDef *p = find_page(id);
+    app->current_page = p->id;
+    adw_view_stack_set_visible_child_name(app->stack, p->id);
+    gtk_label_set_text(GTK_LABEL(app->header_title), gettext(p->title));
+    update_content_state(app);
+    refresh_page(app, p->id);
 }
 
-static GtkWidget *build_sidebar(App *app, const nav_item_t *items, size_t n_items)
+static void update_offline_page(App *app);
+
+/* ---------------- connection manager ---------------- */
+
+typedef struct {
+    gboolean was_connected;
+    gboolean now_connected;
+    gboolean changed;   /* device appeared, disappeared or switched interface */
+    int battery;        /* -1 = unknown / not read */
+    gboolean charging;
+    gboolean read_battery;
+    gboolean asleep;
+    int access;     /* ajazz_access_t, filled in while not connected */
+} ConnResult;
+
+/* Runs on a worker thread. Only touches app->dev (under hid_lock) and the
+ * heap result; never GTK. */
+static void conn_work(App *app, gpointer data)
 {
-    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-    gtk_widget_add_css_class(box, "ajazz-sidebar-panel");
+    ConnResult *r = data;
+    r->battery = -1;
 
-    GtkWidget *header = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
-    gtk_widget_add_css_class(header, "ajazz-sidebar-header");
-    gtk_box_append(GTK_BOX(header), make_logo_widget(34));
-
-    GtkWidget *title_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-    GtkWidget *title = gtk_label_new(_("Ajazzy"));
-    gtk_widget_add_css_class(title, "ajazz-sidebar-title");
-    gtk_widget_set_halign(title, GTK_ALIGN_START);
-    GtkWidget *subtitle = gtk_label_new(_("AJAZZ mouse configurator"));
-    gtk_widget_add_css_class(subtitle, "ajazz-sidebar-subtitle");
-    gtk_widget_set_halign(subtitle, GTK_ALIGN_START);
-    gtk_box_append(GTK_BOX(title_box), title);
-    gtk_box_append(GTK_BOX(title_box), subtitle);
-    gtk_box_append(GTK_BOX(header), title_box);
-    gtk_box_append(GTK_BOX(box), header);
-
-    GtkWidget *list = gtk_list_box_new();
-    gtk_widget_add_css_class(list, "navigation-sidebar");
-    gtk_list_box_set_selection_mode(GTK_LIST_BOX(list), GTK_SELECTION_SINGLE);
-    app->sidebar_list = GTK_LIST_BOX(list);
-
-    for (size_t i = 0; i < n_items; i++) {
-        GtkWidget *row = gtk_list_box_row_new();
-        GtkWidget *rowbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
-        gtk_widget_set_margin_top(rowbox, 11);
-        gtk_widget_set_margin_bottom(rowbox, 11);
-        gtk_widget_set_margin_start(rowbox, 13);
-        gtk_widget_set_margin_end(rowbox, 13);
-        GtkWidget *icon = gtk_image_new_from_icon_name(items[i].icon);
-        gtk_widget_add_css_class(icon, "ajazz-nav-icon");
-        GtkWidget *lbl = gtk_label_new(gettext(items[i].label));
-        gtk_widget_set_halign(lbl, GTK_ALIGN_START);
-        gtk_box_append(GTK_BOX(rowbox), icon);
-        gtk_box_append(GTK_BOX(rowbox), lbl);
-        gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), rowbox);
-        g_object_set_data(G_OBJECT(row), "page", (gpointer)items[i].page);
-        gtk_list_box_append(GTK_LIST_BOX(list), row);
+    if (g_getenv("AJAZZY_NO_DEVICE")) { /* dev aid: review the "no mouse" screens */
+        r->access = g_getenv("AJAZZY_NO_DEVICE")[0] == 'p' ? AJAZZ_ACCESS_DENIED : AJAZZ_ACCESS_NO_DEVICE;
+        return;
     }
 
-    g_signal_connect(list, "row-selected", G_CALLBACK(on_sidebar_row_selected), app);
-    /* row-selected only fires when the selection actually changes -- also
-     * handle row-activated (fires on every click) so clicking the page
-     * that's already open still re-reads the mouse instead of doing nothing. */
-    g_signal_connect(list, "row-activated", G_CALLBACK(on_sidebar_row_selected), app);
-    gtk_widget_set_vexpand(list, TRUE);
-    gtk_box_append(GTK_BOX(box), list);
+    if (r->was_connected) {
+        gboolean still_here = (access(app->dev.path, F_OK) == 0);
+        gboolean better = FALSE;
+        char best[280];
+        int charging = 0;
+        if (still_here && ajazz_best_path(best, sizeof(best), &charging)) {
+            if (strcmp(best, app->dev.path) != 0)
+                better = TRUE;
+            else
+                app->dev.charging = charging;
+        }
+        if (still_here && !better) {
+            r->now_connected = TRUE;
+            r->charging = app->dev.charging;
+            goto battery;
+        }
+        g_mutex_lock(&app->hid_lock);
+        ajazz_close(&app->dev);
+        g_mutex_unlock(&app->hid_lock);
+        r->changed = TRUE;
+    }
 
-    GtkWidget *status_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-    gtk_widget_set_margin_top(status_box, 8);
-    gtk_widget_set_margin_bottom(status_box, 12);
-    gtk_widget_set_margin_start(status_box, 16);
-    gtk_widget_set_halign(status_box, GTK_ALIGN_START);
-    app->status_dot = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-    gtk_widget_add_css_class(app->status_dot, "ajazz-status-dot");
-    gtk_widget_add_css_class(app->status_dot, "disconnected");
-    gtk_widget_set_valign(app->status_dot, GTK_ALIGN_CENTER);
-    gtk_box_append(GTK_BOX(status_box), app->status_dot);
-    app->status_lbl = GTK_LABEL(gtk_label_new(_("Disconnected")));
-    gtk_widget_add_css_class(GTK_WIDGET(app->status_lbl), "ajazz-status-disconnected");
-    gtk_widget_add_css_class(GTK_WIDGET(app->status_lbl), "caption");
-    gtk_box_append(GTK_BOX(status_box), GTK_WIDGET(app->status_lbl));
-    gtk_box_append(GTK_BOX(box), status_box);
+    g_mutex_lock(&app->hid_lock);
+    int rc = ajazz_open(&app->dev);
+    g_mutex_unlock(&app->hid_lock);
+    r->now_connected = (rc == 0);
+    if (r->now_connected)
+        r->changed = TRUE;
+    else
+        r->access = ajazz_probe_access();
+    r->charging = r->now_connected && app->dev.charging;
 
-    gtk_list_box_select_row(GTK_LIST_BOX(list),
-        gtk_list_box_get_row_at_index(GTK_LIST_BOX(list), 0));
+battery:
+    if (r->now_connected && r->read_battery) {
+        ajazz_report_t reply;
+        if (ajazz_query_mt(app, AJAZZ_QUERY_DEVICE_INFO, &reply, 1000) == 0)
+            r->battery = reply.payload[AJAZZ_BATTERY_PAYLOAD_OFFSET];
+    }
+    /* The dongle answers the identity query even while the mouse sleeps, but
+     * every setting query goes unanswered, so probe one of those. */
+    if (r->now_connected && r->read_battery) {
+        ajazz_report_t probe;
+        r->asleep = ajazz_query_mt(app, AJAZZ_QUERY_REPORT_RATE, &probe, 600) != 0;
+    }
+}
 
+static void update_sidebar_status(App *app)
+{
+    ui_set_class(app->side_dot, "aj-dot-on", app->connected);
+    ui_set_class(app->side_dot, "aj-dot-off", !app->connected);
+    if (app->connected) {
+        gtk_label_set_text(app->side_name, app->dev.name);
+        gtk_label_set_text(app->side_state, app->dev.mode[0] ? app->dev.mode : "USB");
+    } else {
+        gtk_label_set_text(app->side_name, _("No mouse"));
+        gtk_label_set_text(app->side_state, _("Not connected"));
+    }
+    if (app->battery_percent >= 0 && app->connected) {
+        char b[24];
+        snprintf(b, sizeof(b), "%d%%", app->battery_percent);
+        ui_chip_set(app->side_battery, b,
+            app->charging ? UI_CHIP_ACCENT : (app->battery_percent < 20 ? UI_CHIP_ERROR : UI_CHIP_NEUTRAL));
+        gtk_widget_set_visible(app->side_battery, TRUE);
+    } else {
+        gtk_widget_set_visible(app->side_battery, FALSE);
+    }
+}
+
+void app_connection_changed(App *app)
+{
+    update_sidebar_status(app);
+    update_content_state(app);
+}
+
+static void conn_done(App *app, gpointer data)
+{
+    ConnResult *r = data;
+    app->connect_busy = FALSE;
+
+    gboolean was = app->connected;
+    app->connected = r->now_connected;
+    app->charging = r->charging;
+    if (r->battery >= 0)
+        app->battery_percent = r->battery;
+    if (!app->connected)
+        app->battery_percent = -1;
+
+    gboolean was_asleep = app->asleep;
+    app->asleep = app->connected && r->asleep;
+    if (r->read_battery && app->asleep != was_asleep)
+        adw_banner_set_revealed(app->asleep_banner, app->asleep);
+
+    if (!was && app->connected)
+        toastf(app, _("Connected to %s"), app->dev.name);
+    else if (was && !app->connected)
+        toast(app, _("Mouse disconnected"));
+
+    app->access_state = app->connected ? AJAZZ_ACCESS_OK : r->access;
+    update_offline_page(app);
+    app_connection_changed(app);
+    home_set_battery(app, app->battery_percent, app->charging);
+    settings_check_low_battery(app, app->battery_percent, app->charging);
+
+    if (r->changed || was != app->connected || (was_asleep && !app->asleep)) {
+        if (app->connected && !app->asleep)
+            app_refresh_all(app);
+        else if (!app->connected)
+            lighting_shutdown(app);
+    }
+
+    /* the mouse just (re)connected: put the user's last profile back */
+    if (!was && app->connected && app->settings_profile_on_start && app->settings_last_profile[0]) {
+        char *name = g_strdup(app->settings_last_profile);
+        profiles_apply_by_name(app, name);
+        g_free(name);
+    }
+}
+
+/* Presence is checked every tick with plain filesystem calls (no traffic to
+ * the mouse). Anything that talks to the mouse over the air -- the battery
+ * read -- is rationed, because every query wakes its radio and costs
+ * battery: every 30 s while the window is open, every 2 min while it is
+ * hidden in the tray, plus whenever the connection (re)starts. */
+#define BATTERY_POLL_TICKS_VISIBLE 15  /* x 2 s */
+#define BATTERY_POLL_TICKS_HIDDEN  60
+
+static void connection_poll_ex(App *app, gboolean force_battery)
+{
+    if (app->connect_busy)
+        return;
+    app->connect_busy = TRUE;
+    ConnResult *r = g_new0(ConnResult, 1);
+    r->was_connected = app->connected;
+    int period = gtk_widget_get_visible(GTK_WIDGET(app->win)) ? BATTERY_POLL_TICKS_VISIBLE : BATTERY_POLL_TICKS_HIDDEN;
+    r->read_battery = force_battery || !app->connected || app->battery_percent < 0 || (app->tick % period == 0);
+    app_async(app, conn_work, conn_done, r, g_free);
+}
+
+static void connection_poll(App *app)
+{
+    connection_poll_ex(app, TRUE);
+}
+
+static gboolean connection_tick(gpointer user_data)
+{
+    App *app = user_data;
+    app->tick++;
+    connection_poll_ex(app, FALSE);
+    return G_SOURCE_CONTINUE;
+}
+
+/* ---------------- window chrome ---------------- */
+
+static void on_retry_clicked(GtkButton *b, gpointer user_data)
+{
+    (void)b;
+    connection_poll(user_data);
+}
+
+/* "plugged in but not allowed" needs the udev rule; "not plugged in" needs a
+ * cable. The offline screen says which one it is and, for the first, offers
+ * the exact command, a copy button and a one-click fix. */
+static AdwStatusPage *g_offline;
+static GtkWidget *g_perm_box, *g_cmd_label, *g_fix_btn;
+
+static void update_offline_page(App *app)
+{
+    if (!g_offline)
+        return;
+    gboolean denied = !app->connected && app->access_state == AJAZZ_ACCESS_DENIED;
+    adw_status_page_set_icon_name(g_offline, denied ? "changes-prevent-symbolic" : "input-mouse-symbolic");
+    adw_status_page_set_title(g_offline, denied ? _("Permission needed") : _("No AJAZZ mouse found"));
+    adw_status_page_set_description(g_offline, denied
+        ? _("The mouse is plugged in, but your user isn't allowed to talk to it yet. "
+            "This is a one-time setup: Ajazzy installs a small udev rule that gives the logged-in user access.")
+        : _("Plug in the mouse (or its 2.4G dongle) and turn it on."));
+    gtk_widget_set_visible(g_perm_box, denied);
+}
+
+typedef struct { App *app; char *tmp; } FixCtx;
+
+static void on_fix_finished(GObject *src, GAsyncResult *res, gpointer user_data)
+{
+    FixCtx *c = user_data;
+    GError *err = NULL;
+    gboolean ok = g_subprocess_wait_check_finish(G_SUBPROCESS(src), res, &err) == TRUE;
+    if (c->tmp) { g_remove(c->tmp); g_free(c->tmp); }
+    gtk_widget_set_sensitive(g_fix_btn, TRUE);
+    if (ok) {
+        toast(c->app, _("Access granted \xE2\x80\x94 looking for the mouse\xE2\x80\xA6"));
+        connection_poll(c->app);
+    } else {
+        toast(c->app, _("Couldn't apply the fix automatically. Copy the command and run it in a terminal."));
+    }
+    g_clear_error(&err);
+    g_free(c);
+}
+
+static void on_fix_clicked(GtkButton *b, gpointer user_data)
+{
+    (void)b;
+    App *app = user_data;
+    char *tmp = NULL;
+    int fd = g_file_open_tmp("ajazzy-udev-XXXXXX.rules", &tmp, NULL);
+    if (fd < 0) { toast(app, _("Couldn't prepare the fix.")); return; }
+    close(fd);
+    g_file_set_contents(tmp, AJAZZ_UDEV_RULE_TEXT, -1, NULL);
+
+    GError *err = NULL;
+    /* pkexec shows the desktop's own password prompt; the script is fixed text
+     * plus our temp file path, nothing user-controlled */
+    const char *script = "install -m644 \"$1\" /etc/udev/rules.d/71-ajazzy.rules && "
+        "udevadm control --reload-rules && udevadm trigger --subsystem-match=hidraw --action=change";
+    GSubprocess *p = g_subprocess_new(G_SUBPROCESS_FLAGS_NONE, &err,
+        "pkexec", "sh", "-c", script, "sh", tmp, NULL);
+    if (!p) {
+        toast(app, _("pkexec isn't available. Copy the command and run it in a terminal."));
+        g_clear_error(&err);
+        g_remove(tmp);
+        g_free(tmp);
+        return;
+    }
+    gtk_widget_set_sensitive(g_fix_btn, FALSE);
+    FixCtx *c = g_new0(FixCtx, 1);
+    c->app = app;
+    c->tmp = tmp;
+    g_subprocess_wait_check_async(p, NULL, on_fix_finished, c);
+    g_object_unref(p);
+}
+
+static void on_copy_cmd_clicked(GtkButton *b, gpointer user_data)
+{
+    (void)b;
+    gdk_clipboard_set_text(gdk_display_get_clipboard(gdk_display_get_default()), ajazz_udev_fix_command());
+    toast(user_data, _("Command copied \xE2\x80\x94 paste it in a terminal."));
+}
+
+static GtkWidget *build_offline_page(App *app)
+{
+    AdwStatusPage *sp = ADW_STATUS_PAGE(adw_status_page_new());
+    g_offline = sp;
+
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 14);
+    gtk_widget_set_halign(box, GTK_ALIGN_CENTER);
+    gtk_widget_set_size_request(box, 560, -1);
+
+    g_perm_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+    GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_set_halign(row, GTK_ALIGN_CENTER);
+    g_fix_btn = ui_button_new(_("Fix it automatically"), "object-select-symbolic", "primary");
+    g_signal_connect(g_fix_btn, "clicked", G_CALLBACK(on_fix_clicked), app);
+    GtkWidget *copy = ui_button_new(_("Copy the command"), "edit-copy-symbolic", "secondary");
+    g_signal_connect(copy, "clicked", G_CALLBACK(on_copy_cmd_clicked), app);
+    gtk_box_append(GTK_BOX(row), g_fix_btn);
+    gtk_box_append(GTK_BOX(row), copy);
+    gtk_box_append(GTK_BOX(g_perm_box), row);
+
+    GtkWidget *hint = gtk_label_new(_("Or run this in a terminal, then Ajazzy will find the mouse on its own:"));
+    gtk_widget_add_css_class(hint, "aj-page-sub");
+    gtk_label_set_wrap(GTK_LABEL(hint), TRUE);
+    gtk_box_append(GTK_BOX(g_perm_box), hint);
+    g_cmd_label = gtk_label_new(ajazz_udev_fix_command());
+    gtk_label_set_selectable(GTK_LABEL(g_cmd_label), TRUE);
+    gtk_label_set_wrap(GTK_LABEL(g_cmd_label), TRUE);
+    gtk_label_set_xalign(GTK_LABEL(g_cmd_label), 0);
+    gtk_widget_add_css_class(g_cmd_label, "monospace");
+    gtk_widget_add_css_class(g_cmd_label, "aj-callout");
+    gtk_widget_add_css_class(g_cmd_label, "aj-callout-info");
+    gtk_box_append(GTK_BOX(g_perm_box), g_cmd_label);
+    gtk_box_append(GTK_BOX(box), g_perm_box);
+
+    GtkWidget *retry = ui_button_new(_("Search again"), "view-refresh-symbolic", "secondary");
+    gtk_widget_set_halign(retry, GTK_ALIGN_CENTER);
+    g_signal_connect(retry, "clicked", G_CALLBACK(on_retry_clicked), app);
+    gtk_box_append(GTK_BOX(box), retry);
+
+    adw_status_page_set_child(sp, box);
+    app->offline_status = GTK_WIDGET(sp);
+    update_offline_page(app);
+    return GTK_WIDGET(sp);
+}
+
+static GtkWidget *build_sidebar(App *app)
+{
+    GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_widget_add_css_class(box, "aj-sidebar");
+
+    GtkWidget *brand = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+    gtk_widget_add_css_class(brand, "aj-brand");
+    GtkWidget *logo = gtk_image_new_from_icon_name(AJAZZ_APP_ID);
+    gtk_image_set_pixel_size(GTK_IMAGE(logo), 36);
+    gtk_box_append(GTK_BOX(brand), logo);
+    GtkWidget *bt = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_widget_set_valign(bt, GTK_ALIGN_CENTER);
+    GtkWidget *bn = gtk_label_new("AJAZZY");
+    gtk_widget_add_css_class(bn, "aj-brand-name");
+    gtk_widget_set_halign(bn, GTK_ALIGN_START);
+    GtkWidget *bs = gtk_label_new(_("Mouse configurator"));
+    gtk_widget_add_css_class(bs, "aj-brand-sub");
+    gtk_widget_set_halign(bs, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(bt), bn);
+    gtk_box_append(GTK_BOX(bt), bs);
+    gtk_box_append(GTK_BOX(brand), bt);
+    gtk_box_append(GTK_BOX(box), brand);
+
+    GtkWidget *scroll = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_widget_set_vexpand(scroll, TRUE);
+
+    GtkWidget *list = gtk_list_box_new();
+    gtk_widget_add_css_class(list, "aj-nav");
+    gtk_list_box_set_selection_mode(GTK_LIST_BOX(list), GTK_SELECTION_SINGLE);
+    app->nav = GTK_LIST_BOX(list);
+
+    for (guint i = 0; i < N_PAGES; i++) {
+        if (PAGES[i].group) {
+            GtkWidget *grow = gtk_list_box_row_new();
+            gtk_list_box_row_set_selectable(GTK_LIST_BOX_ROW(grow), FALSE);
+            gtk_list_box_row_set_activatable(GTK_LIST_BOX_ROW(grow), FALSE);
+            GtkWidget *gl = gtk_label_new(gettext(PAGES[i].group));
+            gtk_widget_add_css_class(gl, "aj-nav-group");
+            gtk_widget_set_halign(gl, GTK_ALIGN_START);
+            gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(grow), gl);
+            gtk_list_box_append(GTK_LIST_BOX(list), grow);
+        }
+        GtkWidget *row = gtk_list_box_row_new();
+        GtkWidget *rb = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+        gtk_widget_set_margin_start(rb, 12);
+        gtk_widget_set_margin_end(rb, 12);
+        gtk_box_append(GTK_BOX(rb), gtk_image_new_from_icon_name(PAGES[i].icon));
+        GtkWidget *lbl = gtk_label_new(gettext(PAGES[i].title));
+        gtk_widget_set_halign(lbl, GTK_ALIGN_START);
+        gtk_box_append(GTK_BOX(rb), lbl);
+        gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), rb);
+        g_object_set_data(G_OBJECT(row), "page", (gpointer)PAGES[i].id);
+
+        char tip[64];
+        snprintf(tip, sizeof(tip), "%s  (Ctrl+%u)", gettext(PAGES[i].title), i + 1);
+        gtk_widget_set_tooltip_text(row, tip);
+        gtk_list_box_append(GTK_LIST_BOX(list), row);
+    }
+    g_signal_connect(list, "row-selected", G_CALLBACK(on_nav_row_selected), app);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), list);
+    gtk_box_append(GTK_BOX(box), scroll);
+
+    /* footer: connection state + battery */
+    GtkWidget *foot = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+    gtk_widget_add_css_class(foot, "aj-side-foot");
+    app->side_dot = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_add_css_class(app->side_dot, "aj-dot");
+    gtk_widget_add_css_class(app->side_dot, "aj-dot-off");
+    gtk_widget_set_valign(app->side_dot, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(foot), app->side_dot);
+
+    GtkWidget *ft = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_widget_set_hexpand(ft, TRUE);
+    app->side_name = GTK_LABEL(gtk_label_new(_("No mouse")));
+    gtk_widget_set_halign(GTK_WIDGET(app->side_name), GTK_ALIGN_START);
+    gtk_label_set_xalign(app->side_name, 0);
+    gtk_label_set_ellipsize(app->side_name, PANGO_ELLIPSIZE_END);
+    gtk_widget_add_css_class(GTK_WIDGET(app->side_name), "heading");
+    app->side_state = GTK_LABEL(gtk_label_new(_("Not connected")));
+    gtk_widget_set_halign(GTK_WIDGET(app->side_state), GTK_ALIGN_START);
+    gtk_widget_add_css_class(GTK_WIDGET(app->side_state), "caption");
+    gtk_widget_add_css_class(GTK_WIDGET(app->side_state), "dim-label");
+    gtk_box_append(GTK_BOX(ft), GTK_WIDGET(app->side_name));
+    gtk_box_append(GTK_BOX(ft), GTK_WIDGET(app->side_state));
+    gtk_box_append(GTK_BOX(foot), ft);
+
+    app->side_battery = ui_chip_new("--", UI_CHIP_NEUTRAL);
+    gtk_widget_set_visible(app->side_battery, FALSE);
+    gtk_box_append(GTK_BOX(foot), app->side_battery);
+    gtk_box_append(GTK_BOX(box), foot);
     return box;
 }
 
-/* Tray callbacks -- see gui/tray.h for why this exists instead of a
- * library-based status icon. "Quit" is the only way to actually end the
- * app once a tray icon is present; closing the window just hides it
- * (see on_window_close_request()), Steam-style, so the mouse stays
- * configurable/watchable from the tray without a window open. */
+/* ---------------- shortcuts ---------------- */
+
+static gboolean on_key_pressed(GtkEventControllerKey *c, guint keyval, guint keycode, GdkModifierType state, gpointer user_data)
+{
+    (void)c; (void)keycode;
+    App *app = user_data;
+    if (state & GDK_CONTROL_MASK) {
+        if (keyval >= GDK_KEY_1 && keyval <= GDK_KEY_7) {
+            guint i = keyval - GDK_KEY_1;
+            if (i < N_PAGES) {
+                switch_to_page(app, PAGES[i].id);
+                return TRUE;
+            }
+        }
+        if (keyval == GDK_KEY_q || keyval == GDK_KEY_Q) {
+            g_application_quit(G_APPLICATION(app->gtk_app));
+            return TRUE;
+        }
+    }
+    if (keyval == GDK_KEY_F5) {
+        connection_poll(app);
+        app_refresh_all(app);
+        return TRUE;
+    }
+    return FALSE;
+}
+
+/* ---------------- tray ---------------- */
+
 static void on_tray_activate(gpointer user_data)
 {
     App *app = user_data;
@@ -412,17 +623,9 @@ static void on_tray_activate(gpointer user_data)
 
 static void on_tray_refresh(gpointer user_data)
 {
-    refresh_home((App *)user_data);
-}
-
-/* Runs every few seconds so an unplug/replug (or a dongle drop/re-pair)
- * is picked up on its own -- see ensure_connected()'s access() check --
- * instead of only refreshing when the user happens to click something.
- * Keeps the tray icon/status honest even while the window is hidden. */
-static gboolean periodic_refresh_cb(gpointer user_data)
-{
-    refresh_home((App *)user_data);
-    return G_SOURCE_CONTINUE;
+    App *app = user_data;
+    connection_poll(app);
+    app_refresh_all(app);
 }
 
 static void on_tray_quit(gpointer user_data)
@@ -431,121 +634,134 @@ static void on_tray_quit(gpointer user_data)
     g_application_quit(G_APPLICATION(app->gtk_app));
 }
 
+static void on_refresh_clicked(GtkButton *b, gpointer user_data)
+{
+    (void)b;
+    on_tray_refresh(user_data);
+}
+
 static gboolean on_window_close_request(GtkWindow *win, gpointer user_data)
 {
-    (void)win; (void)user_data;
-    gtk_widget_set_visible(GTK_WIDGET(win), FALSE);
-    return TRUE; /* handled -- don't destroy the window or quit the app */
+    App *app = user_data;
+    if (app->settings_close_to_tray && app->tray) {
+        gtk_widget_set_visible(GTK_WIDGET(win), FALSE);
+        return TRUE;
+    }
+    g_application_quit(G_APPLICATION(app->gtk_app));
+    return FALSE;
 }
+
+/* ---------------- dev aid: render every page to a PNG ---------------- */
+
+typedef struct { App *app; const char *dir; guint idx; } snap_ctx_t;
+
+static gboolean snapshot_step(gpointer user_data)
+{
+    snap_ctx_t *c = user_data;
+    GtkWidget *w = GTK_WIDGET(c->app->win);
+    if (c->idx > 0) {
+        GdkPaintable *p = gtk_widget_paintable_new(w);
+        int pw = gtk_widget_get_width(w), ph = gtk_widget_get_height(w);
+        GtkSnapshot *snap = gtk_snapshot_new();
+        gdk_paintable_snapshot(p, snap, pw, ph);
+        GskRenderNode *node = gtk_snapshot_free_to_node(snap);
+        GskRenderer *r = gtk_native_get_renderer(gtk_widget_get_native(w));
+        if (node && r) {
+            GdkTexture *tex = gsk_renderer_render_texture(r, node, &GRAPHENE_RECT_INIT(0, 0, pw, ph));
+            char *path = g_strdup_printf("%s/%s.png", c->dir, PAGES[c->idx - 1].id);
+            gdk_texture_save_to_png(tex, path);
+            g_free(path);
+            g_object_unref(tex);
+        }
+        if (node)
+            gsk_render_node_unref(node);
+        g_object_unref(p);
+    }
+    if (c->idx >= N_PAGES) {
+        g_application_quit(G_APPLICATION(c->app->gtk_app));
+        return G_SOURCE_REMOVE;
+    }
+    switch_to_page(c->app, PAGES[c->idx].id);
+    c->idx++;
+    return G_SOURCE_CONTINUE;
+}
+
+/* ---------------- activation ---------------- */
 
 static void on_activate(GtkApplication *gtk_app, gpointer user_data)
 {
     App *app = user_data;
+    if (app->win) {
+        gtk_widget_set_visible(GTK_WIDGET(app->win), TRUE);
+        gtk_window_present(GTK_WINDOW(app->win));
+        return;
+    }
     app->gtk_app = gtk_app;
-    /* keeps the GApplication alive with no visible windows, since closing
-     * to the tray (see on_window_close_request()) would otherwise quit it */
     g_application_hold(G_APPLICATION(gtk_app));
 
     settings_load_and_apply(app);
+    macros_load_library(app);
 
-    /* Lets gtk_image_new_from_icon_name(AJAZZ_APP_ICON) and the window icon
-     * resolve even when running straight from the build directory, not just
-     * when installed under $(PREFIX)/share/icons/hicolor/... */
     gtk_icon_theme_add_search_path(gtk_icon_theme_get_for_display(gdk_display_get_default()), ICONDIR);
 
     GtkCssProvider *css = gtk_css_provider_new();
-    gtk_css_provider_load_from_string(css, CSS);
+    gtk_css_provider_load_from_string(css, AJAZZ_CSS);
     gtk_style_context_add_provider_for_display(gdk_display_get_default(),
         GTK_STYLE_PROVIDER(css), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
 
     app->win = ADW_APPLICATION_WINDOW(adw_application_window_new(GTK_APPLICATION(gtk_app)));
-    gtk_window_set_title(GTK_WINDOW(app->win), _("Ajazzy"));
-    gtk_window_set_icon_name(GTK_WINDOW(app->win), AJAZZ_APP_ICON);
-    gtk_window_set_default_size(GTK_WINDOW(app->win), 960, 720);
+    gtk_window_set_title(GTK_WINDOW(app->win), "Ajazzy");
+    gtk_window_set_icon_name(GTK_WINDOW(app->win), AJAZZ_APP_ID);
+    gtk_window_set_default_size(GTK_WINDOW(app->win), 1120, g_getenv("AJAZZY_SNAPSHOT_DIR") ? 2100 : 760);
     g_signal_connect(app->win, "close-request", G_CALLBACK(on_window_close_request), app);
 
-    /* created before build_sidebar() below, since selecting its initial
-     * row synchronously fires a refresh that can call toast() */
+    GtkEventController *keys = gtk_event_controller_key_new();
+    gtk_event_controller_set_propagation_phase(keys, GTK_PHASE_CAPTURE);
+    g_signal_connect(keys, "key-pressed", G_CALLBACK(on_key_pressed), app);
+    gtk_widget_add_controller(GTK_WIDGET(app->win), keys);
+
     app->toast_overlay = ADW_TOAST_OVERLAY(adw_toast_overlay_new());
 
-    /* Every page's content gets capped to a comfortable reading/working
-     * width and centred -- without this, cards and grids stretch edge
-     * to edge on a wide/maximised window, which looks broken rather
-     * than like a real product. */
-    GtkWidget *(*builders[])(App *) = {
-        build_home_page, build_buttons_page, build_mouse_config_page,
-        build_lighting_page, build_macro_page, build_profiles_page, build_settings_page,
-    };
-    static const char *page_names[] = { "home", "buttons", "config", "lighting", "macro", "profiles", "settings" };
-
     app->stack = ADW_VIEW_STACK(adw_view_stack_new());
-    for (guint i = 0; i < G_N_ELEMENTS(builders); i++) {
-        AdwClamp *clamp = ADW_CLAMP(adw_clamp_new());
-        adw_clamp_set_maximum_size(clamp, 1100);
-        adw_clamp_set_child(clamp, builders[i](app));
-        adw_view_stack_add_named(app->stack, GTK_WIDGET(clamp), page_names[i]);
-    }
+    for (guint i = 0; i < N_PAGES; i++)
+        adw_view_stack_add_named(app->stack, PAGES[i].build(app), PAGES[i].id);
 
-    static const nav_item_t items[] = {
-        {N_("Home"), "go-home-symbolic", "home"},
-        {N_("Buttons"), "input-mouse-symbolic", "buttons"},
-        {N_("Mouse settings"), "preferences-system-symbolic", "config"},
-        {N_("Lighting"), "weather-clear-symbolic", "lighting"},
-        {N_("Macro"), "input-keyboard-symbolic", "macro"},
-        {N_("Profiles"), "document-save-symbolic", "profiles"},
-        {N_("Settings"), "emblem-system-symbolic", "settings"},
-    };
-    GtkWidget *sidebar_content = build_sidebar(app, items, G_N_ELEMENTS(items));
+    app->content_stack = GTK_STACK(gtk_stack_new());
+    gtk_stack_set_transition_type(app->content_stack, GTK_STACK_TRANSITION_TYPE_CROSSFADE);
+    gtk_stack_add_named(app->content_stack, GTK_WIDGET(app->stack), "pages");
+    gtk_stack_add_named(app->content_stack, build_offline_page(app), "offline");
 
-    AdwToolbarView *sidebar_toolbar = ADW_TOOLBAR_VIEW(adw_toolbar_view_new());
-    adw_toolbar_view_set_content(sidebar_toolbar, sidebar_content);
-    AdwNavigationPage *sidebar_page = ADW_NAVIGATION_PAGE(
-        adw_navigation_page_new(GTK_WIDGET(sidebar_toolbar), _("Ajazzy")));
+    GtkWidget *sidebar_content = build_sidebar(app);
+    AdwNavigationPage *sidebar_page = adw_navigation_page_new(sidebar_content, "Ajazzy");
 
-    AdwHeaderBar *content_header = ADW_HEADER_BAR(adw_header_bar_new());
-    adw_header_bar_set_show_title(content_header, FALSE);
+    AdwHeaderBar *hb = ADW_HEADER_BAR(adw_header_bar_new());
+    app->header_title = gtk_label_new("");
+    gtk_widget_add_css_class(app->header_title, "heading");
+    adw_header_bar_set_title_widget(hb, app->header_title);
+    GtkWidget *refresh = gtk_button_new_from_icon_name("view-refresh-symbolic");
+    gtk_widget_set_tooltip_text(refresh, _("Re-read from the mouse (F5)"));
+    gtk_widget_add_css_class(refresh, "flat");
+    g_signal_connect(refresh, "clicked", G_CALLBACK(on_refresh_clicked), app);
+    adw_header_bar_pack_end(hb, refresh);
 
-    GtkWidget *topbar_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-    gtk_widget_set_halign(topbar_box, GTK_ALIGN_START);
-    app->topbar_device_lbl = GTK_LABEL(gtk_label_new(_("No device")));
-    gtk_widget_add_css_class(GTK_WIDGET(app->topbar_device_lbl), "ajazz-topbar-device");
-    gtk_box_append(GTK_BOX(topbar_box), GTK_WIDGET(app->topbar_device_lbl));
+    app->asleep_banner = ADW_BANNER(adw_banner_new(_("The mouse is asleep \xE2\x80\x94 move it or click a button to wake it.")));
+    adw_banner_set_button_label(app->asleep_banner, _("Check again"));
+    g_signal_connect_swapped(app->asleep_banner, "button-clicked", G_CALLBACK(on_tray_refresh), app);
 
-    GtkWidget *topbar_sep = gtk_label_new("\xE2\x80\xA2"); /* bullet */
-    gtk_widget_add_css_class(topbar_sep, "dim-label");
-    gtk_box_append(GTK_BOX(topbar_box), topbar_sep);
-
-    app->topbar_status_dot = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-    gtk_widget_add_css_class(app->topbar_status_dot, "ajazz-status-dot");
-    gtk_widget_add_css_class(app->topbar_status_dot, "disconnected");
-    gtk_widget_set_valign(app->topbar_status_dot, GTK_ALIGN_CENTER);
-    gtk_box_append(GTK_BOX(topbar_box), app->topbar_status_dot);
-    app->topbar_status_lbl = GTK_LABEL(gtk_label_new(_("Disconnected")));
-    gtk_widget_add_css_class(GTK_WIDGET(app->topbar_status_lbl), "ajazz-status-disconnected");
-    gtk_widget_add_css_class(GTK_WIDGET(app->topbar_status_lbl), "caption");
-    gtk_box_append(GTK_BOX(topbar_box), GTK_WIDGET(app->topbar_status_lbl));
-
-    adw_header_bar_set_title_widget(content_header, topbar_box);
-
-    AdwToolbarView *content_toolbar = ADW_TOOLBAR_VIEW(adw_toolbar_view_new());
-    adw_toolbar_view_add_top_bar(content_toolbar, GTK_WIDGET(content_header));
-    GtkWidget *scroller = gtk_scrolled_window_new();
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroller), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
-    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroller), GTK_WIDGET(app->stack));
-    adw_toolbar_view_set_content(content_toolbar, scroller);
-    AdwNavigationPage *content_page = ADW_NAVIGATION_PAGE(
-        adw_navigation_page_new(GTK_WIDGET(content_toolbar), _("Ajazzy")));
+    AdwToolbarView *tv = ADW_TOOLBAR_VIEW(adw_toolbar_view_new());
+    adw_toolbar_view_add_top_bar(tv, GTK_WIDGET(hb));
+    adw_toolbar_view_add_top_bar(tv, GTK_WIDGET(app->asleep_banner));
+    adw_toolbar_view_set_content(tv, GTK_WIDGET(app->content_stack));
+    AdwNavigationPage *content_page = adw_navigation_page_new(GTK_WIDGET(tv), "Ajazzy");
 
     AdwNavigationSplitView *split = ADW_NAVIGATION_SPLIT_VIEW(adw_navigation_split_view_new());
     adw_navigation_split_view_set_sidebar(split, sidebar_page);
     adw_navigation_split_view_set_content(split, content_page);
-    adw_navigation_split_view_set_min_sidebar_width(split, 220);
-    adw_navigation_split_view_set_max_sidebar_width(split, 260);
+    adw_navigation_split_view_set_min_sidebar_width(split, 230);
+    adw_navigation_split_view_set_max_sidebar_width(split, 270);
 
     adw_toast_overlay_set_child(app->toast_overlay, GTK_WIDGET(split));
-
     adw_application_window_set_content(app->win, GTK_WIDGET(app->toast_overlay));
-    gtk_window_present(GTK_WINDOW(app->win));
 
     AjazzTrayCallbacks tray_cb = {
         .on_activate = on_tray_activate,
@@ -553,23 +769,26 @@ static void on_activate(GtkApplication *gtk_app, gpointer user_data)
         .on_quit = on_tray_quit,
         .user_data = app,
     };
-    /* Starts on the "missing" battery icon since we haven't talked to the
-     * mouse yet; refresh_home() swaps it for the real charge level as
-     * soon as it reads one. Uses a standard battery-*-symbolic name, not
-     * our own app icon -- the shell/AppIndicator extension renders this
-     * in its own process and won't see our ICONDIR search path unless
-     * we're actually installed under a standard icon directory. */
-    app->tray = ajazz_tray_new("battery-missing-symbolic", _("Ajazzy"), &tray_cb);
+    app->tray = ajazz_tray_new("battery-missing-symbolic", "Ajazzy", &tray_cb);
 
-    refresh_home(app);
-    /* The dashboard's DPI/rate/lighting cards read app->dpi_cache,
-     * app->rate_hz and app->rgb_effect's selection -- state that's
-     * normally only populated once the user visits the Mouse/Lighting
-     * pages. Warm both up front so the dashboard shows real values
-     * immediately on launch instead of "--"/stale zeros. */
-    refresh_config(app);
-    refresh_lighting(app);
-    g_timeout_add_seconds(2, periodic_refresh_cb, app);
+    const char *snap_dir = g_getenv("AJAZZY_SNAPSHOT_DIR");
+    switch_to_page(app, "home");
+    if (snap_dir || !(app->settings_start_minimized && app->tray))
+        gtk_window_present(GTK_WINDOW(app->win));
+
+    update_sidebar_status(app);
+    update_content_state(app);
+    connection_poll(app);
+    g_timeout_add_seconds(2, connection_tick, app);
+
+    if (snap_dir) {
+        /* page transitions need frames to finish; a headless capture may not get them */
+        g_object_set(gtk_settings_get_default(), "gtk-enable-animations", FALSE, NULL);
+        snap_ctx_t *c = g_new0(snap_ctx_t, 1);
+        c->app = app;
+        c->dir = snap_dir;
+        g_timeout_add(3500, snapshot_step, c);
+    }
 }
 
 int main(int argc, char **argv)
@@ -581,20 +800,22 @@ int main(int argc, char **argv)
 
     App app = {0};
     app.dev.fd = -1;
-    app.dpi_selected = 0;
     app.rate_hz = -1;
     app.battery_percent = -1;
-    init_key_functions();
-    init_macro_actions();
+    g_mutex_init(&app.hid_lock);
 
-    AdwApplication *gtk_app = adw_application_new("io.github.ajazzy.Gui", G_APPLICATION_DEFAULT_FLAGS);
+    AdwApplication *gtk_app = adw_application_new(AJAZZ_APP_ID, G_APPLICATION_DEFAULT_FLAGS);
     g_signal_connect(gtk_app, "activate", G_CALLBACK(on_activate), &app);
 
     int status = g_application_run(G_APPLICATION(gtk_app), argc, argv);
 
+    lighting_shutdown(&app);
+    macros_save_library(&app);
     ajazz_tray_free(app.tray);
-    if (app.connected)
+    g_mutex_lock(&app.hid_lock);
+    if (app.dev.fd >= 0)
         ajazz_close(&app.dev);
+    g_mutex_unlock(&app.hid_lock);
 
     g_object_unref(gtk_app);
     return status;

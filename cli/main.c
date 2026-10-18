@@ -24,23 +24,30 @@ static void print_usage(const char *prog)
         "  dpicolor reset               Reset all 6 indicator colours to factory defaults\n"
         "  rate get                    Show the current report rate\n"
         "  rate set <125|250|500|1000> Set the report/polling rate\n"
-        "  liftoff set <1|2>           Set lift-off distance (may also affect wake-on-motion)\n"
-        "  power get                   Show sleep timer, lift-off level, idle light-off\n"
+        "  sensor get                  Show lift-off, angle snap, ripple control, motion sync\n"
+        "  sensor liftoff <1|2>        Lift-off distance in mm\n"
+        "  sensor anglesnap <0|1>      Angle snapping\n"
+        "  sensor ripple <0|1>         Ripple control\n"
+        "  sensor motionsync <0|1>     Motion sync\n"
+        "  power get                   Show sleep timer, wake on movement, idle light-off, debounce\n"
         "  power sleep <seconds>       Set the auto-sleep timer (0-2550s, rounded to 10s)\n"
+        "  power wake <0|1>            Wake the mouse on movement\n"
         "  power light-idle-off <0|1>  Turn the light off when the mouse is idle\n"
-        "  rgb rainbow <bri 0-4> <speed 0-4>  Turn on the rainbow effect (bri: 0/25/50/75/100%%)\n"
-        "  rgb constant <bri 0-4>      Turn on solid/constant-colour light\n"
+        "  power debounce <ms>         Button debounce time (factory 8)\n"
+        "  rgb steady <RRGGBB> [bri 0-4]            Solid colour\n"
+        "  rgb breathing <bri> <speed> [RRGGBB..]   Breathing, up to 7 colours (default: multicolour)\n"
+        "  rgb flow|neon|wave <bri> <speed>         Built-in effects\n"
         "  rgb off                     Turn the RGB off\n"
         "  rgb get                     Show the current lighting effect\n"
         "  keys reset                  Reset ALL buttons to their default function\n"
-        "  keys reset-slot <1-5>       Reset one button to its default function\n"
-        "  keys set <1-5> <function>   Remap a button (volume-up, mute, forward, ...)\n"
-        "  keys set-key <1-5> <key> [ctrl] [shift] [alt] [win]\n"
+        "  keys reset-slot <1-6>       Reset one button to its default function\n"
+        "  keys set <1-6> <function>   Remap a button (volume-up, mute, forward, ...)\n"
+        "  keys set-key <1-6> <key> [ctrl] [shift] [alt] [win]\n"
         "                               Remap a button to a keyboard key\n"
-        "  keys set-fire <1-5> <interval 5-255> <number 0-255>\n"
+        "  keys set-fire <1-6> <interval 5-255> <number 0-255>\n"
         "                               Turn a button into a rapid-fire/auto-click button\n"
         "  keys list-functions         List the functions 'keys set' accepts\n"
-        "  macro set <1-5> <delay ms> <action> [action...]\n"
+        "  macro set <1-6> <delay ms> <action> [action...]\n"
         "                               Assign a press+release macro to a button (up to %d\n"
         "                               actions, %d+ uses a multi-packet write);\n"
         "                               each action is a key (a-z, 0-9, hex code) or a mouse\n"
@@ -58,10 +65,16 @@ static void print_usage(const char *prog)
 static int open_device(ajazz_dev_t *dev, uint32_t cap, const char *feature_name)
 {
     if (ajazz_open(dev) != 0) {
-        fprintf(stderr, "No AJAZZ mouse found (%s).\n"
-                        "Check that the dongle/mouse is plugged in and that you have\n"
-                        "read/write access to /dev/hidraw* (see udev/71-ajazz.rules).\n",
-                strerror(errno));
+        if (ajazz_probe_access() == AJAZZ_ACCESS_DENIED) {
+            fprintf(stderr,
+                "The mouse is plugged in, but your user isn't allowed to open its device.\n"
+                "Install the udev rule (one-off), then it works without sudo:\n\n%s\n\n",
+                ajazz_udev_fix_command());
+        } else {
+            fprintf(stderr, "No AJAZZ mouse found (%s).\n"
+                            "Check that the dongle/mouse is plugged in and turned on.\n",
+                    strerror(errno));
+        }
         return -1;
     }
     if (cap)
@@ -179,7 +192,7 @@ static int cmd_dpi_set(int stage, int value)
     dpi[stage - 1] = (uint16_t)value;
 
     ajazz_report_t req;
-    ajazz_build_set_dpi_table(&req, dpi, (uint8_t)(stage - 1));
+    ajazz_build_set_dpi_table(&req, dpi, (uint8_t)(stage - 1), (uint8_t)ajazz_dpi_table_count(&reply));
 
     if (ajazz_send_and_wait(&dev, &req, 1000) == 0)
         printf("Stage %d set to %d DPI.\n", stage, value);
@@ -212,7 +225,7 @@ static int cmd_dpi_active(int stage)
     ajazz_parse_dpi_table(&reply, dpi);
 
     ajazz_report_t req;
-    ajazz_build_set_dpi_table(&req, dpi, (uint8_t)(stage - 1));
+    ajazz_build_set_dpi_table(&req, dpi, (uint8_t)(stage - 1), (uint8_t)ajazz_dpi_table_count(&reply));
 
     if (ajazz_send_and_wait(&dev, &req, 1000) == 0)
         printf("Active DPI stage set to %d.\n", stage);
@@ -230,8 +243,10 @@ static int cmd_dpi_reset(void)
     ajazz_dev_t dev;
     if (open_device(&dev, AJAZZ_CAP_DPI, "dpi") != 0) return 1;
 
+    ajazz_report_t cur;
+    int count = (ajazz_query(&dev, AJAZZ_QUERY_DPI_TABLE, &cur, 1000) == 0) ? ajazz_dpi_table_count(&cur) : 5;
     ajazz_report_t req;
-    ajazz_build_set_dpi_table(&req, AJAZZ_DEFAULT_DPI, 0);
+    ajazz_build_set_dpi_table(&req, AJAZZ_DEFAULT_DPI, 0, (uint8_t)count);
 
     if (ajazz_send_and_wait(&dev, &req, 1000) == 0)
         printf("DPI reset to factory defaults (400/800/1200/1600/2400/3200).\n");
@@ -367,167 +382,203 @@ static int cmd_rate_set(int hz)
     return 0;
 }
 
-static int cmd_liftoff_set(int level)
+/* ---- sensor performance (family 0x06) ---- */
+
+static int sensor_modify(const char *what, int (*edit)(ajazz_sensor_t *, int), int value)
 {
     ajazz_dev_t dev;
-    if (open_device(&dev, AJAZZ_CAP_SENSOR, "lift-off/sensor settings") != 0) return 1;
+    if (open_device(&dev, AJAZZ_CAP_SENSOR, "sensor settings") != 0) return 1;
 
     ajazz_report_t reply;
-    if (ajazz_query(&dev, AJAZZ_QUERY_SENSOR, &reply, 1000) != 0) {
+    if (ajazz_query(&dev, AJAZZ_QUERY_SENSOR_PERF, &reply, 1000) != 0) {
         fprintf(stderr, "Could not read the current sensor settings.\n");
         ajazz_close(&dev);
         return 1;
     }
-
-    ajazz_report_t req;
-    ajazz_build_sensor_from_query(&req, &reply);
-    ajazz_sensor_set_liftoff(&req, (uint8_t)level);
-
-    if (ajazz_send_and_wait(&dev, &req, 1000) == 0)
-        printf("Lift-off set: level=%d (note: this byte may also control\n"
-               "\"wake mouse on motion\" -- see protocol/hid.h)\n", level);
-    else
-        fprintf(stderr, "No confirmation from the device.\n");
-
-    ajazz_close(&dev);
-    return 0;
-}
-
-static int cmd_power_sleep(int seconds)
-{
-    if (seconds < 0 || seconds > 2550) {
-        fprintf(stderr, "Seconds must be between 0 and 2550 (42.5 minutes).\n");
-        return 1;
-    }
-
-    ajazz_dev_t dev;
-    if (open_device(&dev, AJAZZ_CAP_SENSOR, "sleep timer") != 0) return 1;
-
-    ajazz_report_t reply;
-    if (ajazz_query(&dev, AJAZZ_QUERY_SENSOR, &reply, 1000) != 0) {
-        fprintf(stderr, "Could not read the current sensor settings.\n");
+    ajazz_sensor_t s;
+    ajazz_parse_sensor_perf(&reply, &s);
+    if (edit(&s, value) != 0) {
+        fprintf(stderr, "Invalid value for %s.\n", what);
         ajazz_close(&dev);
         return 1;
     }
-
     ajazz_report_t req;
-    ajazz_build_sensor_from_query(&req, &reply);
-    ajazz_sensor_set_sleep_seconds(&req, (uint16_t)seconds);
-
+    ajazz_build_set_sensor_perf(&req, &s);
+    int rc = 0;
     if (ajazz_send_and_wait(&dev, &req, 1000) == 0)
-        printf("Auto-sleep timer set to %d seconds.\n", (seconds / 10) * 10);
-    else
+        printf("%s set to %d.\n", what, value);
+    else {
         fprintf(stderr, "No confirmation from the device.\n");
-
+        rc = 1;
+    }
     ajazz_close(&dev);
-    return 0;
+    return rc;
 }
 
-static int cmd_power_light_idle_off(int enabled)
+static int edit_liftoff(ajazz_sensor_t *s, int v) { if (v != 1 && v != 2) return -1; s->lift_off = (uint8_t)v; return 0; }
+static int edit_angle(ajazz_sensor_t *s, int v)   { s->angle_snap = v ? 1 : 0; return 0; }
+static int edit_ripple(ajazz_sensor_t *s, int v)  { s->ripple_control = v ? 1 : 0; return 0; }
+static int edit_msync(ajazz_sensor_t *s, int v)   { s->motion_sync = v ? 1 : 0; return 0; }
+
+static int cmd_sensor_get(void)
 {
     ajazz_dev_t dev;
-    if (open_device(&dev, AJAZZ_CAP_SENSOR, "idle light-off toggle") != 0) return 1;
-
+    if (open_device(&dev, AJAZZ_CAP_SENSOR, "sensor settings") != 0) return 1;
     ajazz_report_t reply;
-    if (ajazz_query(&dev, AJAZZ_QUERY_SENSOR, &reply, 1000) != 0) {
-        fprintf(stderr, "Could not read the current sensor settings.\n");
+    if (ajazz_query(&dev, AJAZZ_QUERY_SENSOR_PERF, &reply, 1000) != 0) {
+        printf("Could not read the sensor settings.\n");
         ajazz_close(&dev);
         return 1;
     }
-
-    ajazz_report_t req;
-    ajazz_build_sensor_from_query(&req, &reply);
-    ajazz_sensor_set_light_idle_off(&req, (uint8_t)enabled);
-
-    if (ajazz_send_and_wait(&dev, &req, 1000) == 0)
-        printf("Turn light off when idle: %s\n", enabled ? "on" : "off");
-    else
-        fprintf(stderr, "No confirmation from the device.\n");
-
+    ajazz_sensor_t s;
+    ajazz_parse_sensor_perf(&reply, &s);
+    printf("Lift-off distance: %d mm\n", s.lift_off);
+    printf("Angle snapping:    %s\n", s.angle_snap ? "on" : "off");
+    printf("Ripple control:    %s\n", s.ripple_control ? "on" : "off");
+    printf("Motion sync:       %s\n", s.motion_sync ? "on" : "off");
     ajazz_close(&dev);
     return 0;
 }
+
+/* ---- power / buttons (family 0x07) ---- */
+
+static int power_modify(const char *what, int value, void (*apply)(ajazz_report_t *, int))
+{
+    ajazz_dev_t dev;
+    if (open_device(&dev, AJAZZ_CAP_SENSOR, "power settings") != 0) return 1;
+
+    ajazz_report_t reply;
+    if (ajazz_query(&dev, AJAZZ_QUERY_POWER, &reply, 1000) != 0) {
+        fprintf(stderr, "Could not read the current power settings.\n");
+        ajazz_close(&dev);
+        return 1;
+    }
+    ajazz_report_t req;
+    ajazz_build_power_from_query(&req, &reply);
+    apply(&req, value);
+    int rc = 0;
+    if (ajazz_send_and_wait(&dev, &req, 1000) == 0)
+        printf("%s set to %d.\n", what, value);
+    else {
+        fprintf(stderr, "No confirmation from the device.\n");
+        rc = 1;
+    }
+    ajazz_close(&dev);
+    return rc;
+}
+
+static void ap_sleep(ajazz_report_t *r, int v)  { ajazz_power_set_sleep_seconds(r, (uint16_t)v); }
+static void ap_wake(ajazz_report_t *r, int v)   { ajazz_power_set_wake_on_motion(r, (uint8_t)v); }
+static void ap_idle(ajazz_report_t *r, int v)   { ajazz_power_set_light_idle_off(r, (uint8_t)v); }
+static void ap_deb(ajazz_report_t *r, int v)    { ajazz_power_set_debounce_ms(r, (uint8_t)v); }
 
 static int cmd_power_get(void)
 {
     ajazz_dev_t dev;
-    if (open_device(&dev, AJAZZ_CAP_SENSOR, "sensor/power settings") != 0) return 1;
+    if (open_device(&dev, AJAZZ_CAP_SENSOR, "power settings") != 0) return 1;
 
     ajazz_report_t reply;
-    if (ajazz_query(&dev, AJAZZ_QUERY_SENSOR, &reply, 1000) != 0) {
-        printf("Could not read the sensor/power settings.\n");
+    if (ajazz_query(&dev, AJAZZ_QUERY_POWER, &reply, 1000) != 0) {
+        printf("Could not read the power settings.\n");
         ajazz_close(&dev);
         return 1;
     }
-
-    printf("Auto-sleep timer: %d seconds\n", reply.payload[0] * 10);
-    printf("Lift-off level: %d (note: this byte may also be \"wake mouse on\n"
-           "motion\" -- see protocol/hid.h)\n", reply.payload[1]);
-    printf("Turn light off when idle: %s\n", reply.payload[2] ? "on" : "off");
-
+    printf("Auto-sleep timer:         %d seconds\n", reply.payload[0] * 10);
+    printf("Wake on movement:         %s\n", reply.payload[1] ? "on" : "off");
+    printf("Light off when idle:      %s\n", reply.payload[2] ? "on" : "off");
+    printf("Button debounce:          %d ms\n", reply.payload[3]);
     ajazz_close(&dev);
     return 0;
 }
 
-static int cmd_rgb_rainbow(int brightness, int speed)
+/* ---- lighting ---- */
+
+static int parse_rgb(const char *s, uint8_t out[3])
 {
-    if (brightness < 0 || brightness > 4 || speed < 0 || speed > 4) {
+    if (*s == '#') s++;
+    if (strlen(s) != 6) return -1;
+    unsigned v;
+    if (sscanf(s, "%x", &v) != 1) return -1;
+    out[0] = (uint8_t)(v >> 16);
+    out[1] = (uint8_t)(v >> 8);
+    out[2] = (uint8_t)v;
+    return 0;
+}
+
+static int rgb_send(const ajazz_report_t *req, const char *label)
+{
+    ajazz_dev_t dev;
+    if (open_device(&dev, AJAZZ_CAP_RGB, "rgb lighting") != 0) return 1;
+    int rc = 0;
+    if (ajazz_send_and_wait(&dev, req, 1000) == 0)
+        printf("%s\n", label);
+    else {
+        fprintf(stderr, "No confirmation from the device.\n");
+        rc = 1;
+    }
+    ajazz_close(&dev);
+    return rc;
+}
+
+static int bs_ok(int b, int s)
+{
+    if (b < 0 || b > 4 || s < 0 || s > 4) {
         fprintf(stderr, "Brightness and speed must be between 0 and 4.\n");
-        return 1;
+        return 0;
     }
-
-    ajazz_dev_t dev;
-    if (open_device(&dev, AJAZZ_CAP_RGB, "rgb lighting") != 0) return 1;
-
-    ajazz_report_t req;
-    ajazz_build_set_rgb_rainbow(&req, (uint8_t)brightness, (uint8_t)speed);
-
-    if (ajazz_send_and_wait(&dev, &req, 1000) == 0)
-        printf("Rainbow effect on (brightness=%d speed=%d).\n", brightness, speed);
-    else
-        fprintf(stderr, "No confirmation from the device.\n");
-
-    ajazz_close(&dev);
-    return 0;
+    return 1;
 }
 
-static int cmd_rgb_constant(int brightness)
+/* rgb steady <RRGGBB> <bri> ; rgb breathing <bri> <speed> [RRGGBB ...] ;
+ * rgb flow|neon|wave <bri> <speed> */
+static int cmd_rgb_set(int argc, char **argv)
 {
-    if (brightness < 0 || brightness > 4) {
-        fprintf(stderr, "Brightness must be between 0 and 4.\n");
-        return 1;
-    }
-
-    ajazz_dev_t dev;
-    if (open_device(&dev, AJAZZ_CAP_RGB, "rgb lighting") != 0) return 1;
-
+    const char *mode = argv[0];
     ajazz_report_t req;
-    ajazz_build_set_rgb_constant(&req, (uint8_t)brightness);
-
-    if (ajazz_send_and_wait(&dev, &req, 1000) == 0)
-        printf("Constant light on (brightness=%d).\n", brightness);
-    else
-        fprintf(stderr, "No confirmation from the device.\n");
-
-    ajazz_close(&dev);
-    return 0;
+    if (strcmp(mode, "steady") == 0 || strcmp(mode, "constant") == 0) {
+        uint8_t rgb[3] = {0xff, 0x00, 0x00};
+        int bri = 4;
+        if (argc >= 2 && parse_rgb(argv[1], rgb) != 0) { fprintf(stderr, "Colour must be RRGGBB.\n"); return 1; }
+        if (argc >= 3) bri = atoi(argv[2]);
+        if (!bs_ok(bri, 0)) return 1;
+        ajazz_build_set_light_steady(&req, (uint8_t)bri, 0, rgb);
+        return rgb_send(&req, "Steady colour set.");
+    }
+    if (strcmp(mode, "breathing") == 0 || strcmp(mode, "rainbow") == 0) {
+        int bri = argc >= 2 ? atoi(argv[1]) : 4;
+        int spd = argc >= 3 ? atoi(argv[2]) : 2;
+        if (!bs_ok(bri, spd)) return 1;
+        uint8_t pal[AJAZZ_LIGHT_PALETTE][3];
+        memcpy(pal, AJAZZ_LIGHT_DEFAULT_PALETTE, sizeof(pal));
+        int n = argc - 3;
+        if (n > 0) {
+            if (n > AJAZZ_LIGHT_PALETTE) n = AJAZZ_LIGHT_PALETTE;
+            for (int i = 0; i < AJAZZ_LIGHT_PALETTE; i++)
+                if (parse_rgb(argv[3 + (i < n ? i : n - 1)], pal[i]) != 0) {
+                    fprintf(stderr, "Colours must be RRGGBB.\n");
+                    return 1;
+                }
+        }
+        ajazz_build_set_light_breathing(&req, (uint8_t)bri, (uint8_t)spd, pal);
+        return rgb_send(&req, "Breathing effect set.");
+    }
+    uint8_t m = 0;
+    if (strcmp(mode, "flow") == 0) m = AJAZZ_LIGHT_FLOW;
+    else if (strcmp(mode, "neon") == 0) m = AJAZZ_LIGHT_NEON;
+    else if (strcmp(mode, "wave") == 0) m = AJAZZ_LIGHT_WAVE;
+    else { fprintf(stderr, "Unknown lighting mode '%s'.\n", mode); return 1; }
+    int bri = argc >= 2 ? atoi(argv[1]) : 4;
+    int spd = argc >= 3 ? atoi(argv[2]) : 2;
+    if (!bs_ok(bri, spd)) return 1;
+    ajazz_build_set_light_simple(&req, m, (uint8_t)bri, (uint8_t)spd);
+    return rgb_send(&req, "Lighting effect set.");
 }
 
 static int cmd_rgb_off(void)
 {
-    ajazz_dev_t dev;
-    if (open_device(&dev, AJAZZ_CAP_RGB, "rgb lighting") != 0) return 1;
-
     ajazz_report_t req;
     ajazz_build_set_rgb_off(&req);
-
-    if (ajazz_send_and_wait(&dev, &req, 1000) == 0)
-        printf("RGB turned off.\n");
-    else
-        fprintf(stderr, "No confirmation from the device.\n");
-
-    ajazz_close(&dev);
-    return 0;
+    return rgb_send(&req, "RGB turned off.");
 }
 
 static int cmd_rgb_get(void)
@@ -542,25 +593,27 @@ static int cmd_rgb_get(void)
         return 1;
     }
 
-    ajazz_led_state_t st;
-    if (ajazz_parse_led_mode(&reply, &st) != 0) {
-        printf("Lighting: unrecognized state, raw opcode=0x%02x\n", st.effect);
+    ajazz_light_state_t st;
+    if (ajazz_parse_light(&reply, &st) != 0) {
+        printf("Lighting: unrecognized state, raw opcode=0x%02x\n", reply.opcode);
         printf("raw payload: ");
         hexdump(reply.payload, AJAZZ_PAYLOAD_LEN);
         ajazz_close(&dev);
         return 0;
     }
 
-    switch (st.effect) {
-        case AJAZZ_LED_OFF:
-            printf("Lighting: off\n");
-            break;
-        case AJAZZ_LED_CONSTANT:
-            printf("Lighting: constant colour (brightness=%d)\n", st.brightness);
-            break;
-        case AJAZZ_LED_RAINBOW:
-            printf("Lighting: rainbow cycle (brightness=%d speed=%d)\n", st.brightness, st.speed);
-            break;
+    static const char *names[] = {"off", "flow", "breathing", "steady colour", "neon", "colourful wave"};
+    printf("Lighting: %s", names[st.mode]);
+    if (st.mode != AJAZZ_LIGHT_OFF)
+        printf(" (brightness=%d speed=%d)", st.brightness, st.speed);
+    if (st.mode == AJAZZ_LIGHT_STEADY)
+        printf(" colour=%02x%02x%02x", st.rgb[0], st.rgb[1], st.rgb[2]);
+    printf("\n");
+    if (st.mode == AJAZZ_LIGHT_BREATHING) {
+        printf("  palette:");
+        for (int i = 0; i < AJAZZ_LIGHT_PALETTE; i++)
+            printf(" %02x%02x%02x", st.palette[i][0], st.palette[i][1], st.palette[i][2]);
+        printf("\n");
     }
 
     ajazz_close(&dev);
@@ -907,7 +960,7 @@ static int cmd_macro_set(int slot_1based, int delay_ms, int argc, char **argv)
     if (open_device(&dev, AJAZZ_CAP_MACRO, "macro") != 0) return 1;
 
     ajazz_report_t chunks[(AJAZZ_MACRO_MAX_CHUNKED_STEPS * 4 + AJAZZ_PAYLOAD_LEN) / AJAZZ_PAYLOAD_LEN + 1];
-    int n_chunks = ajazz_build_macro_content_chunked(chunks, (int)(sizeof(chunks) / sizeof(chunks[0])), steps, n_steps);
+    int n_chunks = ajazz_build_macro_content_chunked(chunks, (int)(sizeof(chunks) / sizeof(chunks[0])), (uint8_t)(slot_1based - 1), steps, n_steps);
     if (n_chunks < 0) {
         fprintf(stderr, "Macro is too long to encode.\n");
         ajazz_close(&dev);
@@ -930,7 +983,7 @@ static int cmd_macro_set(int slot_1based, int delay_ms, int argc, char **argv)
 
     ajazz_report_t assign;
     ajazz_build_key_table_from_query(&assign, &reply);
-    ajazz_key_slot_set_macro(&assign, slot_1based - 1);
+    ajazz_key_slot_set_macro(&assign, slot_1based - 1, AJAZZ_MACRO_ONCE, 0);
 
     if (ajazz_send_and_wait(&dev, &assign, 1000) == 0)
         printf("Button %d now plays a %d-action macro (%dms delay between steps).\n",
@@ -1030,24 +1083,34 @@ int main(int argc, char **argv)
             return cmd_rate_get();
         if (strcmp(argv[2], "set") == 0 && argc == 4)
             return cmd_rate_set(atoi(argv[3]));
-    } else if (strcmp(argv[1], "liftoff") == 0 && argc == 4 && strcmp(argv[2], "set") == 0) {
-        return cmd_liftoff_set(atoi(argv[3]));
+    } else if (strcmp(argv[1], "sensor") == 0 && argc >= 3) {
+        if (strcmp(argv[2], "get") == 0)
+            return cmd_sensor_get();
+        if (argc == 4 && strcmp(argv[2], "liftoff") == 0)
+            return sensor_modify("Lift-off distance (mm)", edit_liftoff, atoi(argv[3]));
+        if (argc == 4 && strcmp(argv[2], "anglesnap") == 0)
+            return sensor_modify("Angle snapping", edit_angle, atoi(argv[3]));
+        if (argc == 4 && strcmp(argv[2], "ripple") == 0)
+            return sensor_modify("Ripple control", edit_ripple, atoi(argv[3]));
+        if (argc == 4 && strcmp(argv[2], "motionsync") == 0)
+            return sensor_modify("Motion sync", edit_msync, atoi(argv[3]));
     } else if (strcmp(argv[1], "power") == 0 && argc >= 3) {
         if (strcmp(argv[2], "get") == 0)
             return cmd_power_get();
-        if (strcmp(argv[2], "sleep") == 0 && argc == 4)
-            return cmd_power_sleep(atoi(argv[3]));
-        if (strcmp(argv[2], "light-idle-off") == 0 && argc == 4)
-            return cmd_power_light_idle_off(atoi(argv[3]));
+        if (argc == 4 && strcmp(argv[2], "sleep") == 0)
+            return power_modify("Auto-sleep (s)", atoi(argv[3]), ap_sleep);
+        if (argc == 4 && strcmp(argv[2], "wake") == 0)
+            return power_modify("Wake on movement", atoi(argv[3]), ap_wake);
+        if (argc == 4 && strcmp(argv[2], "light-idle-off") == 0)
+            return power_modify("Light off when idle", atoi(argv[3]), ap_idle);
+        if (argc == 4 && strcmp(argv[2], "debounce") == 0)
+            return power_modify("Button debounce (ms)", atoi(argv[3]), ap_deb);
     } else if (strcmp(argv[1], "rgb") == 0 && argc >= 3) {
-        if (strcmp(argv[2], "rainbow") == 0 && argc == 5)
-            return cmd_rgb_rainbow(atoi(argv[3]), atoi(argv[4]));
-        if (strcmp(argv[2], "constant") == 0 && argc == 4)
-            return cmd_rgb_constant(atoi(argv[3]));
         if (strcmp(argv[2], "off") == 0)
             return cmd_rgb_off();
         if (strcmp(argv[2], "get") == 0)
             return cmd_rgb_get();
+        return cmd_rgb_set(argc - 2, argv + 2);
     } else if (strcmp(argv[1], "keys") == 0 && argc >= 3) {
         if (strcmp(argv[2], "reset") == 0 && argc == 3)
             return cmd_keys_reset();

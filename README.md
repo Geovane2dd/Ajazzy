@@ -16,28 +16,26 @@ Every push to `main` builds and publishes a [release](https://github.com/Geovane
 
 | Feature | Status |
 |---|---|
-| Device detection (name, VID:PID, firmware id) | Confirmed |
-| Battery level | Confirmed (see note below) |
-| DPI — read/write all 6 stages, switch active stage | Confirmed |
+| Device detection (name, VID:PID, firmware id), USB and 2.4G | Confirmed |
+| Battery level, charging state | Confirmed |
+| DPI — 6 stages, values, indicator colours, active stage, stages used by the DPI button | Confirmed |
 | Report rate (125/250/500/1000 Hz) | Confirmed |
-| RGB — rainbow-cycle effect, brightness, speed, off | Confirmed |
-| RGB — constant/solid-colour effect, brightness | Confirmed |
-| Lift-off distance | Confirmed |
-| Sensor/power — sleep timer, idle light-off | Confirmed |
-| "Wake mouse on motion" toggle | Confirmed to change *something* — see note below |
-| Button remap — media/browser keys, keyboard keys | Confirmed |
-| Button remap — rapid-fire/auto-click | Confirmed |
-| Macros — up to 50 key/button press+release actions per button, with delay | Confirmed |
-| Reset buttons to factory default (all, or one at a time) | Confirmed |
-| Multiple RGB effect *names* beyond "off"/"rainbow"/"constant" | **Not distinguished yet** — see below |
+| Lighting — off, steady colour (any RGB), breathing (up to 7 colours) | Confirmed. Flowing, neon and colour wave exist in the firmware protocol but the official driver disables them for every model it ships a config for (and they did nothing on an AJ179 V2 MAX), so Ajazzy only offers them where a model's table enables them |
+| Lighting — colour cycle and custom fade | Software effects (run while Ajazzy is open) |
+| Sensor — lift-off (1/2 mm), angle snapping, ripple control, motion sync | Confirmed (round-trips) |
+| Power — sleep timer, wake on movement, light off when idle, button debounce | Confirmed (round-trips) |
+| Buttons — mouse functions, media, system shortcuts, any keyboard shortcut, rapid-fire, disable | Confirmed for remaps and rapid-fire; entries marked *beta* in the GUI come from the official driver but haven't been pressed on hardware |
+| Macros — record, edit, library, import/export, repeat modes (once / while held / until click / N times), up to 101 steps | Written and read back; playback of long macros depends on the mouse's memory |
+| Profiles — whole-mouse snapshots incl. macros, import/export, auto-apply on connect | Local to this PC |
+| Battery saver — one switch for 250 Hz + short sleep + lights off + idle light-off, restores afterwards, optional auto-on when low | Local logic over confirmed commands |
+| Factory reset | Reconstructed from the official driver |
 
-A few notes on the rougher edges:
+A few notes:
 
-- **Battery** reads back as a real 0-100% value (confirmed against the mouse's own status pushes), not the 4-bar guess the original driver's UI shows. The GUI also shows charging state, since that changes what the number means.
-- **Macros** are stored on the device, not played back in software. Up to 3 actions fit in a single report; longer ones (up to 50) use a chunked multi-packet write reconstructed from the official driver's code rather than a wire capture, so test a long macro on the button after saving it. See [`docs/reverse-engineering.md`](docs/reverse-engineering.md#macros) for how the wire format was figured out.
-- **Report rate** and **DPI stage** are independent commands. `rate get` / the GUI read back the real current rate.
-- **Sensor & power** (`ajazzyctl power get/sleep/light-idle-off`, `liftoff set`) all live in one 32-byte report — changing one preserves the others. Lift-off distance might double as a "wake mouse on motion" toggle; a capture of that control landed on the same byte and it's not clear yet whether that's really the same setting.
-- **RGB** supports off/rainbow/constant, both set and read back (`rgb rainbow`/`rgb constant`/`rgb off`/`rgb get`). Other effect names from the original driver aren't distinguished on the wire — they may just not be real, separate commands.
+- **Battery** is a real 0-100% value (see [`docs/reverse-engineering.md`](docs/reverse-engineering.md#the-battery-query)). Ajazzy only queries the mouse over the air every 30 s (2 min when hidden in the tray) and checks plugged/unplugged with plain filesystem calls, because every query wakes the mouse's radio and costs battery.
+- **A mouse that just woke up** answers queries with empty replies for a moment. The transport retries those instead of showing zeros, and the GUI shows a banner while the mouse is asleep.
+- **Macros** are stored on the device, per button. The button-table entry carries the button index and the repeat mode — an earlier version of this project hard-coded the index of the button it was captured on.
+- **Lift-off** and **wake on movement** used to be mixed up in this project (they were assumed to share one byte). They are separate commands; both are handled correctly now.
 
 ## Supported devices
 
@@ -86,13 +84,18 @@ Then unplug and replug the mouse/dongle.
 ./ajazzyctl dpi set 1 1600              # stage 1 -> 1600 DPI
 ./ajazzyctl dpi active 3                # switch to stage 3
 ./ajazzyctl rate set 1000               # 1000 Hz polling
-./ajazzyctl rgb rainbow 4 2             # brightness 0-4, speed 0-4
-./ajazzyctl rgb constant 3              # solid colour, brightness 0-4
+./ajazzyctl rgb steady ff0000 4         # solid colour (RRGGBB), brightness 0-4
+./ajazzyctl rgb breathing 4 2 ff0000 0000ff   # breathing, brightness, speed, up to 7 colours
+./ajazzyctl rgb flow 4 2                # also: neon, wave
 ./ajazzyctl rgb off
-./ajazzyctl liftoff set 2               # 2mm lift-off
-./ajazzyctl power get                   # sleep timer, lift-off, idle light-off, all in one report
-./ajazzyctl power sleep 600              # auto-sleep after 10 minutes idle
-./ajazzyctl power light-idle-off 1       # turn the light off once idle
+./ajazzyctl sensor get                  # lift-off, angle snapping, ripple, motion sync
+./ajazzyctl sensor liftoff 2            # 2mm lift-off
+./ajazzyctl sensor motionsync 1
+./ajazzyctl power get                   # sleep timer, wake on movement, idle light-off, debounce
+./ajazzyctl power sleep 600             # auto-sleep after 10 minutes idle
+./ajazzyctl power wake 1                # wake the mouse on movement
+./ajazzyctl power light-idle-off 1      # turn the light off once idle
+./ajazzyctl power debounce 8            # button debounce in ms
 ./ajazzyctl keys list-functions         # what you can assign with 'keys set'
 ./ajazzyctl keys set 5 volume-up        # button 5 -> volume up
 ./ajazzyctl keys set-key 5 c ctrl       # button 5 -> Ctrl+C
@@ -100,20 +103,35 @@ Then unplug and replug the mouse/dongle.
 ./ajazzyctl keys reset-slot 5           # back to default
 ./ajazzyctl keys reset                  # reset every button
 ./ajazzyctl macro set 5 10 a b          # button 5 -> press a, press b, 10ms delay between each step
-./ajazzyctl macro set 4 10 lclick       # button 4 -> replay a left click
 ```
 
 `ajazzyctl watch` dumps raw incoming reports and `ajazzyctl raw <64 hex chars>` sends an arbitrary 32-byte report — both are there for protocol research, not everyday use.
 
 ## Using the GUI
 
-`ajazzy-gui` (or `make install` it and launch "Ajazzy" from your app launcher). Every page reads live from the mouse when you open it, so there's no "load" button to remember. Picks up the Portuguese translation automatically on a `pt_BR` system locale, English otherwise.
+`ajazzy-gui` (or `make install` it and launch "Ajazzy" from your app launcher). Picks up the Portuguese translation automatically on a `pt_BR` system locale, English otherwise; light and dark themes follow the system or can be forced in Settings.
 
-It's got its own look — a fixed accent colour instead of whatever your system theme happens to be, a battery bar on the Home page, DPI stage buttons coloured to match the mouse's actual per-stage LED colours, a live preview on the Lighting page. Every setting the CLI has is in the GUI too, going through the same `protocol/hid.c` functions underneath. The Home page's Compatibility section shows what's actually been tested on your exact model — green means confirmed, yellow means "should work, nobody's checked."
+**Everything applies the moment you change it** — there are no Apply buttons to forget. Sliders and number fields are debounced so a drag is one write, and every value on screen is re-read from the mouse, so what you see is what the mouse really has.
 
-Closing the window doesn't quit the app — it minimizes to a tray icon showing the battery level, with a menu to reopen the window, refresh, or quit for real. Needs a tray host to actually show up; on GNOME that means the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/).
+| Page | What it does |
+|---|---|
+| **Overview** | Battery ring, the numbers that matter (DPI, report rate, lighting, battery saver), one-click profiles, what each button does, device details |
+| **Buttons** | Click a button on the product photo of your model, then pick a function; record any keyboard shortcut; put a macro or rapid-fire on it; reset one or all |
+| **Performance** | Battery saver, DPI stages (slider, colours, how many the DPI button cycles), report rate, sensor tuning, sleep/wake/debounce |
+| **Lighting** | Animated effect gallery (six run inside the mouse, two are clearly labelled software effects), per-effect colours and speed, presets |
+| **Macros** | Library with live recording (keys and clicks with your real timing), step editor, repeat modes, import/export |
+| **Profiles** | Save/apply/import/export whole-mouse setups, incl. macros |
+| **Settings** | Theme, start with the computer, tray behaviour, low-battery warning, diagnostics |
 
-The button page has a small generic mouse diagram — it's not a drawing of your specific model, just a rough layout to click through the 5 configurable button slots quickly.
+Shortcuts: `Ctrl+1…7` switch page, `F5` re-reads the mouse, `Ctrl+Q` quits. Closing the window keeps Ajazzy in the tray (configurable) with the battery level on the icon — on GNOME that needs the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/).
+
+### Easy on the mouse's battery
+
+Ajazzy is built not to be the thing that drains your mouse: presence is checked locally, battery is read rarely, nothing polls the mouse while it sleeps, and the effects that would keep its radio busy (the two software effects) are labelled as such. The **Battery saver** switch does the rest of the work for you.
+
+The pictures in `gui/images/` come from the official driver package (see `gui/images/README.md` for licensing and how to add a model).
+
+Developer aids: `AJAZZY_SNAPSHOT_DIR=<dir> ajazzy-gui` renders every page to a PNG and quits; `AJAZZY_NO_DEVICE=1` pretends no mouse is attached so the empty states can be reviewed.
 
 ## Architecture
 
@@ -121,8 +139,12 @@ The button page has a small generic mouse diagram — it's not a drawing of your
 Ajazzy/
 ├── cli/                  ajazzyctl -- the command-line tool
 ├── gui/
-│   ├── main.c                the GTK4 + libadwaita front-end, ajazzy-gui
+│   ├── main.c                app shell: window, navigation, connection manager
+│   ├── ui.c / ui.h           shared components (page, card, row, chip, segmented control)
+│   ├── style.c               the visual language (one CSS sheet)
+│   ├── page_*.c              one file per page
 │   └── tray.c / tray.h       system tray icon (StatusNotifierItem + dbusmenu, no library)
+├── tests/                 wire-format tests (`make test`), no hardware needed
 ├── protocol/
 │   ├── hid.c / hid.h         wire format: report struct, checksum, command builders
 │   └── transport.c / .h      hidraw I/O, device discovery
@@ -155,7 +177,7 @@ The protocol is the same across the whole AJAZZ lineup (same vendor HID interfac
 
 ## How this was reverse engineered
 
-Short version: the installer's `config.xml` (pulled out with `innoextract`, no need to run it) gave the VID/PID table for device detection. Everything about the actual protocol — the checksum, every command family, the button/key table layout — came from capturing real USB traffic with Wireshark and USBPcap on a Windows VM while operating every control in the original app (DPI, RGB, report rate, button remapping) and diffing the resulting packets. The full walkthrough is in [`docs/reverse-engineering.md`](docs/reverse-engineering.md).
+Short version: the installer's `config.xml` (pulled out with `innoextract`, no need to run it) gave the VID/PID table for device detection. Everything about the actual protocol — the checksum, every command family, the button/key table layout — came from capturing real USB traffic with Wireshark and USBPcap on a Windows VM while operating every control in the original app (DPI, RGB, report rate, button remapping) and diffing the resulting packets — and, for what a capture can't show (every lighting mode, the sensor commands, the button-function codes, macro repeat modes), from decompiling the official driver with Ghidra and then confirming each command against the real mouse by writing it and reading it back. The full walkthrough is in [`docs/reverse-engineering.md`](docs/reverse-engineering.md).
 
 ## License
 

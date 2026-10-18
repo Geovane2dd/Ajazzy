@@ -23,10 +23,11 @@ tar czf "$OUT/$CLI_NAME-linux-x86_64.tar.gz" -C "$CLI_STAGE" "$CLI_NAME"
 if [ -f ajazzy-gui ]; then
     GUI_STAGE="$(mktemp -d)"
     GUI_NAME="ajazzy-gui-$VERSION"
-    mkdir -p "$GUI_STAGE/$GUI_NAME/icons" "$GUI_STAGE/$GUI_NAME/locale/pt_BR/LC_MESSAGES"
+    mkdir -p "$GUI_STAGE/$GUI_NAME/icons" "$GUI_STAGE/$GUI_NAME/images" "$GUI_STAGE/$GUI_NAME/locale/pt_BR/LC_MESSAGES"
     install -m755 ajazzy-gui "$GUI_STAGE/$GUI_NAME/"
     install -m644 gui/icons/io.github.ajazzy.Gui.svg "$GUI_STAGE/$GUI_NAME/icons/"
     install -m644 gui/io.github.ajazzy.Gui.desktop "$GUI_STAGE/$GUI_NAME/"
+    install -m644 gui/images/*.png "$GUI_STAGE/$GUI_NAME/images/"
     [ -f locale/pt_BR/LC_MESSAGES/ajazzy.mo ] && install -m644 locale/pt_BR/LC_MESSAGES/ajazzy.mo \
         "$GUI_STAGE/$GUI_NAME/locale/pt_BR/LC_MESSAGES/"
     install -m644 udev/71-ajazzy.rules "$GUI_STAGE/$GUI_NAME/"

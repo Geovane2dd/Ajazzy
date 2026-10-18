@@ -207,6 +207,64 @@ int ajazz_open(ajazz_dev_t *dev)
     return -1;
 }
 
+ajazz_access_t ajazz_probe_access(void)
+{
+    DIR *d = opendir("/sys/class/hidraw");
+    if (!d)
+        return AJAZZ_ACCESS_NO_DEVICE;
+
+    int found = 0, accessible = 0;
+    struct dirent *ent;
+    while ((ent = readdir(d)) != NULL) {
+        if (strncmp(ent->d_name, "hidraw", 6) != 0)
+            continue;
+        char up[320];
+        snprintf(up, sizeof(up), "/sys/class/hidraw/%s/device/uevent", ent->d_name);
+        FILE *f = fopen(up, "r");
+        if (!f)
+            continue;
+        char line[256];
+        unsigned vid = 0, pid = 0;
+        int have = 0;
+        while (fgets(line, sizeof(line), f)) {
+            /* HID_ID=0003:0000249A:00005C2F */
+            unsigned bus;
+            if (sscanf(line, "HID_ID=%x:%x:%x", &bus, &vid, &pid) == 3) {
+                have = 1;
+                break;
+            }
+        }
+        fclose(f);
+        if (!have || !ajazz_lookup_name((uint16_t)vid, (uint16_t)pid))
+            continue;
+        found++;
+        char node[300];
+        snprintf(node, sizeof(node), "/dev/%s", ent->d_name);
+        int fd = open(node, O_RDWR);
+        if (fd >= 0) {
+            accessible++;
+            close(fd);
+        }
+    }
+    closedir(d);
+    if (!found)
+        return AJAZZ_ACCESS_NO_DEVICE;
+    return accessible ? AJAZZ_ACCESS_OK : AJAZZ_ACCESS_DENIED;
+}
+
+#include "udev_rule.h"
+
+const char *ajazz_udev_fix_command(void)
+{
+    static char cmd[2048];
+    if (!cmd[0])
+        snprintf(cmd, sizeof(cmd),
+            "sudo tee /etc/udev/rules.d/71-ajazzy.rules >/dev/null <<'EOF'\n%sEOF\n"
+            "sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hidraw --action=change",
+            AJAZZ_UDEV_RULE);
+    return cmd;
+}
+
 void ajazz_close(ajazz_dev_t *dev)
 {
     if (dev->fd >= 0) {
@@ -275,15 +333,30 @@ static int recv_until(ajazz_dev_t *dev, ajazz_report_t *reply, uint8_t want_fami
     }
 }
 
+/* A just-woken mouse answers queries with the right family but opcode 0
+ * ("no payload bytes"), and an all-zero payload that looks like real data
+ * (0 DPI, 0 s sleep timer...). Callers can't tell that from a valid reply,
+ * so empty replies are retried here a few times -- the data is usually
+ * there within a few hundred milliseconds. */
+#define AJAZZ_QUERY_EMPTY_RETRIES 8
+#define AJAZZ_QUERY_RETRY_DELAY_MS 150
+
 int ajazz_query(ajazz_dev_t *dev, uint8_t query_id, ajazz_report_t *reply, int timeout_ms)
 {
     ajazz_report_t req;
     ajazz_build_query(&req, query_id);
 
-    if (ajazz_send(dev, &req) != 0)
-        return -1;
-
-    return recv_until(dev, reply, query_id, timeout_ms);
+    for (int attempt = 0; attempt <= AJAZZ_QUERY_EMPTY_RETRIES; attempt++) {
+        if (ajazz_send(dev, &req) != 0)
+            return -1;
+        if (recv_until(dev, reply, query_id, timeout_ms) != 0)
+            return -1;
+        if (reply->opcode != 0)
+            return 0;
+        struct timespec ts = { 0, AJAZZ_QUERY_RETRY_DELAY_MS * 1000000L };
+        nanosleep(&ts, NULL);
+    }
+    return -1; /* answered, but only ever with empty replies */
 }
 
 int ajazz_send_and_wait(ajazz_dev_t *dev, const ajazz_report_t *r, int timeout_ms)

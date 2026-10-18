@@ -44,6 +44,21 @@ void ajazz_close(ajazz_dev_t *dev);
  * preferred path and *charging_out with whether a "USB" node exists. */
 int ajazz_best_path(char *path_out, size_t len, int *charging_out);
 
+/* Why can't we talk to the mouse? Looks at /sys/class/hidraw for AJAZZ
+ * devices and tries to open their nodes, so "unplugged" and "plugged in but
+ * your user may not touch /dev/hidraw*" can be told apart -- the second one
+ * needs the udev rule, the first one needs a cable. */
+typedef enum {
+    AJAZZ_ACCESS_NO_DEVICE = 0, /* no known AJAZZ hidraw node at all */
+    AJAZZ_ACCESS_OK = 1,        /* at least one node can be opened */
+    AJAZZ_ACCESS_DENIED = 2,    /* nodes exist but none can be opened (permissions) */
+} ajazz_access_t;
+ajazz_access_t ajazz_probe_access(void);
+
+/* The shell command that installs the udev rule and applies it to devices
+ * that are already plugged in. Static string, never freed. */
+const char *ajazz_udev_fix_command(void);
+
 /* Sends a 32 byte report and returns 0 on success. */
 int ajazz_send(ajazz_dev_t *dev, const ajazz_report_t *r);
 

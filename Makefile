@@ -9,12 +9,12 @@ CLI_BIN = ajazzyctl
 GUI_BIN = ajazzy-gui
 GETTEXT_DOMAIN = ajazzy
 
-GUI_CFLAGS := $(shell pkg-config --cflags gtk4 libadwaita-1 2>/dev/null) -DLOCALEDIR=\"$(CURDIR)/locale\" -DICONDIR=\"$(CURDIR)/gui/icons\"
+GUI_CFLAGS := $(shell pkg-config --cflags gtk4 libadwaita-1 2>/dev/null) -DLOCALEDIR=\"$(CURDIR)/locale\" -DICONDIR=\"$(CURDIR)/gui/icons\" -DIMAGEDIR=\"$(CURDIR)/gui/images\"
 GUI_LIBS := $(shell pkg-config --libs gtk4 libadwaita-1 2>/dev/null) -lm
 HAVE_GUI := $(shell pkg-config --exists gtk4 libadwaita-1 2>/dev/null && echo yes)
 HAVE_GETTEXT := $(shell which msgfmt xgettext >/dev/null 2>&1 && echo yes)
 
-.PHONY: all clean install uninstall gui locales pot
+.PHONY: all clean install uninstall gui locales pot test
 
 all: $(CLI_BIN) gui locales
 
@@ -28,8 +28,8 @@ endif
 $(CLI_BIN): cli/main.o $(CORE_OBJS)
 	$(CC) $(CFLAGS) -o $@ $^
 
-GUI_SRCS = gui/main.c gui/page_home.c gui/page_mouse.c gui/page_lighting.c gui/page_buttons.c gui/page_macro.c gui/page_profiles.c gui/page_settings.c gui/jsonutil.c gui/tray.c
-GUI_HDRS = gui/app.h gui/tray.h gui/jsonutil.h
+GUI_SRCS = gui/main.c gui/ui.c gui/style.c gui/keymap.c gui/page_home.c gui/page_buttons.c gui/page_performance.c gui/page_lighting.c gui/page_macros.c gui/page_profiles.c gui/page_settings.c gui/jsonutil.c gui/tray.c
+GUI_HDRS = gui/app.h gui/tray.h gui/jsonutil.h gui/ui.h gui/keymap.h
 
 $(GUI_BIN): $(GUI_SRCS) $(GUI_HDRS) $(CORE_OBJS)
 	$(CC) $(CFLAGS) $(GUI_CFLAGS) -o $@ $(GUI_SRCS) $(CORE_OBJS) $(GUI_LIBS)
@@ -48,21 +48,41 @@ else
 	@echo "gettext tools not found, skipping translation build (GUI will fall back to English)."
 endif
 
+test: tests/test_protocol
+	./tests/test_protocol
+
+tests/test_protocol: tests/test_protocol.c protocol/hid.c protocol/hid.h
+	$(CC) $(CFLAGS) -o $@ tests/test_protocol.c protocol/hid.c
+
+# the udev rule is embedded in the binaries so they can show/apply the exact fix
+protocol/udev_rule.h: udev/71-ajazzy.rules
+	@printf '/* generated from udev/71-ajazzy.rules -- do not edit */\n#define AJAZZ_UDEV_RULE \\\n' > $@
+	@sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/^/    "/' -e 's/$$/\\n" \\/' udev/71-ajazzy.rules >> $@
+	@printf '    ""\n' >> $@
+
+protocol/transport.o: protocol/transport.c protocol/udev_rule.h
+
 %.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 clean:
-	rm -f cli/main.o $(CORE_OBJS) $(CLI_BIN) $(GUI_BIN)
+	rm -f protocol/udev_rule.h cli/main.o $(CORE_OBJS) $(CLI_BIN) $(GUI_BIN) tests/test_protocol
 	rm -rf locale
 
 install: all
 	install -Dm755 $(CLI_BIN) $(DESTDIR)$(PREFIX)/bin/$(CLI_BIN)
 	install -Dm644 udev/71-ajazzy.rules $(DESTDIR)/etc/udev/rules.d/71-ajazzy.rules
+ifeq ($(DESTDIR),)
+	-udevadm control --reload-rules
+	-udevadm trigger --subsystem-match=hidraw --action=change
+endif
 ifeq ($(HAVE_GUI),yes)
 	install -Dm755 $(GUI_BIN) $(DESTDIR)$(PREFIX)/bin/$(GUI_BIN)
 	install -Dm644 locale/pt_BR/LC_MESSAGES/$(GETTEXT_DOMAIN).mo $(DESTDIR)$(PREFIX)/share/locale/pt_BR/LC_MESSAGES/$(GETTEXT_DOMAIN).mo
 	install -Dm644 gui/icons/io.github.ajazzy.Gui.svg $(DESTDIR)$(PREFIX)/share/icons/hicolor/scalable/apps/io.github.ajazzy.Gui.svg
 	install -Dm644 gui/io.github.ajazzy.Gui.desktop $(DESTDIR)$(PREFIX)/share/applications/io.github.ajazzy.Gui.desktop
+	install -d $(DESTDIR)$(PREFIX)/share/ajazzy/images
+	install -m644 gui/images/*.png $(DESTDIR)$(PREFIX)/share/ajazzy/images/
 endif
 
 uninstall:
@@ -72,3 +92,4 @@ uninstall:
 	rm -f $(DESTDIR)$(PREFIX)/share/locale/pt_BR/LC_MESSAGES/$(GETTEXT_DOMAIN).mo
 	rm -f $(DESTDIR)$(PREFIX)/share/icons/hicolor/scalable/apps/io.github.ajazzy.Gui.svg
 	rm -f $(DESTDIR)$(PREFIX)/share/applications/io.github.ajazzy.Gui.desktop
+	rm -rf $(DESTDIR)$(PREFIX)/share/ajazzy

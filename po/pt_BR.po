@@ -1,1162 +1,1611 @@
-# Brazilian Portuguese translation for ajazz-gui.
+# Portuguese (Brazil) translation for Ajazzy.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: ajazz-gui\n"
+"Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-06 09:10-0300\n"
-"PO-Revision-Date: 2026-08-02 14:00-0300\n"
-"Last-Translator: ajazz-linux contributors\n"
+"POT-Creation-Date: 2026-10-18 09:38-0300\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: Ajazzy contributors\n"
 "Language-Team: Portuguese (Brazil)\n"
 "Language: pt_BR\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: gui/main.c:197
-msgid "Connected"
-msgstr "Conectado"
+#: gui/main.c:117 gui/page_home.c:362
+msgid "Overview"
+msgstr "Visão geral"
 
-#: gui/main.c:197 gui/main.c:389 gui/main.c:523 gui/page_home.c:343
-msgid "Disconnected"
-msgstr "Desconectado"
+#: gui/main.c:117
+msgid "Device"
+msgstr "Dispositivo"
 
-#: gui/main.c:250 gui/main.c:510 gui/page_home.c:239
-msgid "No device"
-msgstr "Nenhum dispositivo"
-
-#: gui/main.c:263
-msgid "No AJAZZ mouse found. Check the connection and permissions."
-msgstr "Nenhum mouse AJAZZ encontrado. Verifique a conexão e as permissões."
-
-#: gui/main.c:337 gui/main.c:462 gui/main.c:503 gui/main.c:537 gui/main.c:562
-msgid "Ajazzy"
-msgstr "Ajazzy"
-
-#: gui/main.c:340
-msgid "AJAZZ mouse configurator"
-msgstr "Configurador de mouse AJAZZ"
-
-#: gui/main.c:490
-msgid "Home"
-msgstr "Início"
-
-#: gui/main.c:491 gui/page_buttons.c:592
+#: gui/main.c:118 gui/page_home.c:29 gui/page_home.c:387 gui/page_buttons.c:701
 msgid "Buttons"
 msgstr "Botões"
 
-#: gui/main.c:492
-msgid "Mouse settings"
-msgstr "Configurações do mouse"
+#: gui/main.c:118
+msgid "Customise"
+msgstr "Personalizar"
 
-#: gui/main.c:493 gui/page_home.c:772
+#: gui/main.c:119 gui/page_performance.c:661
+msgid "Performance"
+msgstr "Desempenho"
+
+#: gui/main.c:120 gui/page_home.c:28 gui/page_home.c:370
+#: gui/page_lighting.c:792
 msgid "Lighting"
 msgstr "Iluminação"
 
-#: gui/main.c:494 gui/page_macro.c:390
-msgid "Macro"
-msgstr "Macro"
-
-#: gui/main.c:495 gui/page_profiles.c:390
-msgid "Profiles"
-msgstr "Perfis"
-
-#: gui/main.c:496 gui/page_lighting.c:743
-msgid "Settings"
-msgstr "Ajustes"
-
-#: gui/page_home.c:73 gui/page_home.c:760 gui/page_mouse.c:560
-msgid "DPI"
-msgstr "DPI"
-
-#: gui/page_home.c:74 gui/page_home.c:764 gui/page_mouse.c:746
-msgid "Report rate"
-msgstr "Taxa de resposta"
-
-#: gui/page_home.c:75 gui/page_lighting.c:696
-msgid "RGB lighting"
-msgstr "Iluminação RGB"
-
-#: gui/page_home.c:76 gui/page_mouse.c:777
-msgid "Sensor and power"
-msgstr "Sensor e energia"
-
-#: gui/page_home.c:77
-msgid "Button remapping"
-msgstr "Mapeamento de botões"
-
-#: gui/page_home.c:78 gui/page_home.c:485 gui/page_home.c:506
-msgid "Battery"
-msgstr "Bateria"
-
-#: gui/page_home.c:79 gui/page_macro.c:324
+#: gui/main.c:121 gui/page_home.c:30 gui/page_macros.c:910
 msgid "Macros"
 msgstr "Macros"
 
-#: gui/page_home.c:121
-msgid "Low"
-msgstr "Baixa"
+#: gui/main.c:122 gui/page_home.c:376 gui/page_profiles.c:609
+msgid "Profiles"
+msgstr "Perfis"
 
-#: gui/page_home.c:121
-msgid "Medium"
-msgstr "Média"
+#: gui/main.c:122
+msgid "App"
+msgstr "Aplicativo"
 
-#: gui/page_home.c:121
-msgid "Good"
-msgstr "Boa"
+#: gui/main.c:123 gui/page_lighting.c:845 gui/page_settings.c:278
+msgid "Settings"
+msgstr "Ajustes"
 
-#: gui/page_home.c:121
+#: gui/main.c:266 gui/main.c:568
+msgid "No mouse"
+msgstr "Nenhum mouse"
+
+#: gui/main.c:267 gui/main.c:573 gui/tray.c:114
+msgid "Not connected"
+msgstr "Desconectado"
+
+#: gui/main.c:305
+#, c-format
+msgid "Connected to %s"
+msgstr "Conectado a %s"
+
+#: gui/main.c:307
+msgid "Mouse disconnected"
+msgstr "Mouse desconectado"
+
+#: gui/main.c:383
+msgid "Permission needed"
+msgstr "Permissão necessária"
+
+#: gui/main.c:383
+msgid "No AJAZZ mouse found"
+msgstr "Nenhum mouse AJAZZ encontrado"
+
+#: gui/main.c:385
+msgid "The mouse is plugged in, but your user isn't allowed to talk to it yet. This is a one-time setup: Ajazzy installs a small udev rule that gives the logged-in user access."
+msgstr "O mouse está conectado, mas seu usuário ainda não tem permissão para falar com ele. É uma configuração única: o Ajazzy instala uma pequena regra udev que dá acesso ao usuário logado."
+
+#: gui/main.c:387
+msgid "Plug in the mouse (or its 2.4G dongle) and turn it on."
+msgstr "Conecte o mouse (ou o dongle 2.4G) e ligue-o."
+
+#: gui/main.c:401
+msgid "Access granted — looking for the mouse…"
+msgstr "Acesso liberado — procurando o mouse…"
+
+#: gui/main.c:404
+msgid "Couldn't apply the fix automatically. Copy the command and run it in a terminal."
+msgstr "Não foi possível aplicar a correção automaticamente. Copie o comando e execute em um terminal."
+
+#: gui/main.c:416
+msgid "Couldn't prepare the fix."
+msgstr "Não foi possível preparar a correção."
+
+#: gui/main.c:428
+msgid "pkexec isn't available. Copy the command and run it in a terminal."
+msgstr "O pkexec não está disponível. Copie o comando e execute em um terminal."
+
+#: gui/main.c:446
+msgid "Command copied — paste it in a terminal."
+msgstr "Comando copiado — cole em um terminal."
+
+#: gui/main.c:461
+msgid "Fix it automatically"
+msgstr "Corrigir automaticamente"
+
+#: gui/main.c:463
+msgid "Copy the command"
+msgstr "Copiar o comando"
+
+#: gui/main.c:469
+msgid "Or run this in a terminal, then Ajazzy will find the mouse on its own:"
+msgstr "Ou execute isto em um terminal, e o Ajazzy encontra o mouse sozinho:"
+
+#: gui/main.c:483
+msgid "Search again"
+msgstr "Procurar novamente"
+
+#: gui/main.c:509
+msgid "Mouse configurator"
+msgstr "Configurador de mouse"
+
+#: gui/main.c:742
+msgid "Re-read from the mouse (F5)"
+msgstr "Reler do mouse (F5)"
+
+#: gui/main.c:747
+msgid "The mouse is asleep — move it or click a button to wake it."
+msgstr "O mouse está dormindo — mexa nele ou clique em um botão para acordá-lo."
+
+#: gui/main.c:748
+msgid "Check again"
+msgstr "Verificar de novo"
+
+#: gui/page_home.c:28 gui/page_home.c:368 gui/page_performance.c:691
+msgid "DPI"
+msgstr "DPI"
+
+#: gui/page_home.c:28 gui/page_home.c:369 gui/page_performance.c:788
+msgid "Report rate"
+msgstr "Taxa de resposta"
+
+#: gui/page_home.c:29 gui/page_performance.c:795
+msgid "Sensor"
+msgstr "Sensor"
+
+#: gui/page_home.c:29
+msgid "Battery"
+msgstr "Bateria"
+
+#: gui/page_home.c:49
 msgid "Full"
 msgstr "Cheia"
 
-#: gui/page_home.c:146
-#, c-format
-msgid "Battery: %d%% -- %s (charging)"
-msgstr "Bateria: %d%% -- %s (carregando)"
+#: gui/page_home.c:50
+msgid "Good"
+msgstr "Boa"
 
-#: gui/page_home.c:146
-#, c-format
-msgid "Battery: %d%% -- %s"
-msgstr "Bateria: %d%% -- %s"
+#: gui/page_home.c:51
+msgid "Medium"
+msgstr "Média"
 
-#: gui/page_home.c:156
-msgid "Battery: unknown"
-msgstr "Bateria: desconhecida"
+#: gui/page_home.c:52
+msgid "Low"
+msgstr "Baixa"
 
-#: gui/page_home.c:186 gui/page_lighting.c:703 gui/page_profiles.c:278
-msgid "Off"
-msgstr "Desligado"
-
-#: gui/page_home.c:186 gui/page_lighting.c:704 gui/page_lighting.c:864
-#: gui/page_profiles.c:278
-msgid "Rainbow"
-msgstr "Arco-íris"
-
-#: gui/page_home.c:186 gui/page_lighting.c:703 gui/page_lighting.c:882
-msgid "Constant colour"
-msgstr "Cor constante"
-
-#: gui/page_home.c:186 gui/page_profiles.c:278
-msgid "Colour cycle"
-msgstr "Ciclo de cor"
-
-#: gui/page_home.c:229 gui/page_home.c:333 gui/tray.c:114
-msgid "Not connected"
-msgstr "Não conectado"
-
-#: gui/page_home.c:244 gui/tray.c:282
+#: gui/page_home.c:84 gui/tray.c:282
 msgid "No AJAZZ mouse detected"
 msgstr "Nenhum mouse AJAZZ detectado"
 
-#: gui/page_home.c:267
-msgid ""
-"This exact model hasn't been individually confirmed to work --\n"
-"it should, since every AJAZZ mouse we've looked at shares the\n"
-"same protocol, but please report back either way."
-msgstr ""
-"Esse modelo exato ainda não foi confirmado individualmente --\n"
-"deve funcionar, já que todo mouse AJAZZ que analisamos usa o\n"
-"mesmo protocolo, mas nos avise se funcionar ou não."
+#: gui/page_home.c:86
+#, c-format
+msgid "Battery: %d%% (charging)"
+msgstr "Bateria: %d%% (carregando)"
 
-#: gui/page_home.c:271
-msgid "Protocol confirmed against real hardware for this model."
-msgstr "Protocolo confirmado em hardware real para este modelo."
+#: gui/page_home.c:86
+#, c-format
+msgid "Battery: %d%%"
+msgstr "Bateria: %d%%"
 
-#: gui/page_home.c:300 gui/page_home.c:309
-msgid "Untested"
-msgstr "Não testado"
+#: gui/page_home.c:101 gui/page_home.c:327
+msgid "Charging"
+msgstr "Carregando"
 
-#: gui/page_home.c:309
-msgid "Tested ✓"
-msgstr "Testado ✓"
+#: gui/page_home.c:104
+msgid "Unknown"
+msgstr "Desconhecida"
 
-#: gui/page_home.c:355
-msgid "BATTERY"
-msgstr "BATERIA"
+#: gui/page_home.c:148 gui/page_profiles.c:349
+#, c-format
+msgid "Applying “%s”…"
+msgstr "Aplicando “%s”…"
 
-#: gui/page_home.c:373
-msgid "⚡ Charging"
-msgstr "⚡ Carregando"
+#: gui/page_home.c:150
+msgid "Couldn't apply that profile."
+msgstr "Não foi possível aplicar esse perfil."
 
-#: gui/page_home.c:386 gui/page_home.c:633
-msgid "Refresh"
-msgstr "Atualizar"
+#: gui/page_home.c:189
+msgid "Factory settings restored."
+msgstr "Configurações de fábrica restauradas."
 
-#: gui/page_home.c:403 gui/page_home.c:601 gui/page_mouse.c:379
-#: gui/page_mouse.c:397 gui/page_mouse.c:418 gui/page_mouse.c:438
-#: gui/page_mouse.c:455 gui/page_mouse.c:480 gui/page_mouse.c:528
-#: gui/page_lighting.c:281 gui/page_buttons.c:86 gui/page_buttons.c:118
-#: gui/page_macro.c:243 gui/page_macro.c:296 gui/page_profiles.c:349
-msgid "Connect the mouse first."
-msgstr "Conecte o mouse primeiro."
+#: gui/page_home.c:205
+msgid "Restore factory settings?"
+msgstr "Restaurar as configurações de fábrica?"
 
-#: gui/page_home.c:408
-msgid "Factory reset sent."
-msgstr "Restauração de fábrica enviada."
+#: gui/page_home.c:206
+msgid "DPI and colours, report rate, lighting, sensor and power settings, buttons and macros all go back to what the mouse shipped with. This can't be undone (your saved profiles are kept)."
+msgstr "DPI e cores, taxa de resposta, iluminação, sensor e energia, botões e macros voltam ao que o mouse trazia de fábrica. Isso não pode ser desfeito (seus perfis salvos são mantidos)."
 
-#: gui/page_home.c:411
-msgid "Failed to send the factory reset."
-msgstr "Falha ao enviar a restauração de fábrica."
-
-#: gui/page_home.c:420
-msgid "Restore factory defaults?"
-msgstr "Restaurar os padrões de fábrica?"
-
-#: gui/page_home.c:421
-msgid ""
-"This resets DPI, DPI colours, report rate, lighting, sensor/power, button "
-"mapping and macros. There's no undo once sent."
-msgstr ""
-"Isso redefine o DPI, as cores de DPI, a taxa de resposta, a iluminação, o "
-"sensor/energia, o mapeamento de botões e as macros. Não há como desfazer "
-"depois de enviado."
-
-#: gui/page_home.c:423 gui/page_lighting.c:682 gui/page_buttons.c:105
-#: gui/page_profiles.c:371 gui/page_settings.c:233
+#: gui/page_home.c:208 gui/page_buttons.c:357 gui/page_buttons.c:394
+#: gui/page_buttons.c:468 gui/page_lighting.c:721 gui/page_macros.c:547
+#: gui/page_profiles.c:588 gui/page_settings.c:238
 msgid "Cancel"
 msgstr "Cancelar"
 
-#: gui/page_home.c:424
+#: gui/page_home.c:209
 msgid "Restore"
 msgstr "Restaurar"
 
-#: gui/page_home.c:605
-msgid "Device information"
-msgstr "Informações do dispositivo"
+#: gui/page_home.c:230
+msgid "No mouse connected"
+msgstr "Nenhum mouse conectado"
 
-#: gui/page_home.c:606
-msgid "OK"
-msgstr "OK"
+#: gui/page_home.c:238
+msgid "2.4G wireless"
+msgstr "Sem fio 2.4G"
 
-#: gui/page_home.c:621
-msgid "Quick actions"
-msgstr "Ações rápidas"
+#: gui/page_home.c:238
+msgid "USB cable"
+msgstr "Cabo USB"
 
-#: gui/page_home.c:633
-msgid "Re-read from mouse"
-msgstr "Reler do mouse"
+#: gui/page_home.c:241
+msgid "Verified model"
+msgstr "Modelo verificado"
 
-#: gui/page_home.c:634
-msgid "Factory reset"
-msgstr "Restauração de fábrica"
+#: gui/page_home.c:241
+msgid "Untested model"
+msgstr "Modelo não testado"
 
-#: gui/page_home.c:634
-msgid "Restore all defaults"
-msgstr "Restaurar todos os padrões"
+#: gui/page_home.c:244
+msgid "Plug in the mouse or its dongle."
+msgstr "Conecte o mouse ou o dongle dele."
 
-#: gui/page_home.c:635
-msgid "Device info"
-msgstr "Info do dispositivo"
+#: gui/page_home.c:254
+#, c-format
+msgid "Stage %d of %d"
+msgstr "Estágio %d de %d"
 
-#: gui/page_home.c:635
-msgid "VID/PID, firmware id"
-msgstr "VID/PID, ID de firmware"
+#: gui/page_home.c:263
+msgid "Smoothest"
+msgstr "Mais suave"
 
-#: gui/page_home.c:672 gui/page_buttons.c:223 gui/page_macro.c:37
+#: gui/page_home.c:263
+msgid "Battery friendly"
+msgstr "Economiza bateria"
+
+#: gui/page_home.c:263
+msgid "Balanced"
+msgstr "Equilibrada"
+
+#: gui/page_home.c:270
+#, c-format
+msgid "Brightness %d%%"
+msgstr "Brilho %d%%"
+
+#: gui/page_home.c:275 gui/page_performance.c:555
+msgid "On"
+msgstr "Ligada"
+
+#: gui/page_home.c:275 gui/page_performance.c:555 gui/page_performance.c:679
+#: gui/page_lighting.c:32
+msgid "Off"
+msgstr "Desligada"
+
+#: gui/page_home.c:276
+msgid "Saving power"
+msgstr "Economizando energia"
+
+#: gui/page_home.c:276
+msgid "Full performance"
+msgstr "Desempenho total"
+
+#: gui/page_home.c:371 gui/page_performance.c:672 gui/page_performance.c:677
+msgid "Battery saver"
+msgstr "Economia de bateria"
+
+#: gui/page_home.c:376
+msgid "Switch the whole mouse with one click."
+msgstr "Troque a configuração inteira do mouse com um clique."
+
+#: gui/page_home.c:390
+msgid "Button 1"
+msgstr "Botão 1"
+
+#: gui/page_home.c:390
+msgid "Button 2"
+msgstr "Botão 2"
+
+#: gui/page_home.c:390
+msgid "Button 3"
+msgstr "Botão 3"
+
+#: gui/page_home.c:390
+msgid "Button 4"
+msgstr "Botão 4"
+
+#: gui/page_home.c:390
+msgid "Button 5"
+msgstr "Botão 5"
+
+#: gui/page_home.c:390 gui/page_macros.c:1024
+msgid "Button 6 (DPI)"
+msgstr "Botão 6 (DPI)"
+
+#: gui/page_home.c:402
+msgid "This mouse"
+msgstr "Este mouse"
+
+#: gui/page_home.c:404
+msgid "Model"
+msgstr "Modelo"
+
+#: gui/page_home.c:405
+msgid "Firmware ID"
+msgstr "ID do firmware"
+
+#: gui/page_home.c:406
+msgid "USB ID"
+msgstr "ID USB"
+
+#: gui/page_home.c:407
+msgid "Connection"
+msgstr "Conexão"
+
+#: gui/page_home.c:408
+msgid "Device node"
+msgstr "Nó do dispositivo"
+
+#: gui/page_home.c:422
+msgid "✓ means this feature has been verified on this exact model."
+msgstr "✓ significa que este recurso foi verificado neste modelo exato."
+
+#: gui/page_home.c:433
+msgid "Maintenance"
+msgstr "Manutenção"
+
+#: gui/page_home.c:435
+msgid "Restore…"
+msgstr "Restaurar…"
+
+#: gui/page_home.c:437
+msgid "Restore factory settings"
+msgstr "Restaurar configurações de fábrica"
+
+#: gui/page_home.c:438
+msgid "Puts everything on the mouse back to how it shipped."
+msgstr "Devolve tudo no mouse ao estado de fábrica."
+
+#: gui/page_buttons.c:33 gui/page_buttons.c:80
 msgid "Left click"
 msgstr "Clique esquerdo"
 
-#: gui/page_home.c:672 gui/page_buttons.c:223 gui/page_macro.c:38
+#: gui/page_buttons.c:34 gui/page_buttons.c:80
 msgid "Right click"
 msgstr "Clique direito"
 
-#: gui/page_home.c:672 gui/page_buttons.c:223 gui/page_macro.c:39
+#: gui/page_buttons.c:35 gui/page_buttons.c:80
 msgid "Middle click"
 msgstr "Clique do meio"
 
-#: gui/page_home.c:672 gui/page_buttons.c:223
+#: gui/page_buttons.c:36 gui/page_buttons.c:80
 msgid "Back"
 msgstr "Voltar"
 
-#: gui/page_home.c:672 gui/page_buttons.c:223
+#: gui/page_buttons.c:37 gui/page_buttons.c:80
 msgid "Forward"
 msgstr "Avançar"
 
-#: gui/page_home.c:680
-msgid "Button mapping"
-msgstr "Mapeamento de botões"
-
-#: gui/page_home.c:695 gui/page_buttons.c:635 gui/page_macro.c:361
-#, c-format
-msgid "Button %d"
-msgstr "Botão %d"
-
-#: gui/page_home.c:709
-msgid "Open Buttons page"
-msgstr "Abrir página de Botões"
-
-#: gui/page_home.c:760
-msgid "Current DPI"
-msgstr "DPI atual"
-
-#: gui/page_home.c:760
-msgid "DPI Stages"
-msgstr "Estágios de DPI"
-
-#: gui/page_home.c:764
-msgid "Polling rate"
-msgstr "Taxa de resposta"
-
-#: gui/page_home.c:764
-msgid "Performance settings"
-msgstr "Configurações de desempenho"
-
-#: gui/page_home.c:768
-msgid "Sensor & power"
-msgstr "Sensor e energia"
-
-#: gui/page_home.c:772
-msgid "Current effect"
-msgstr "Efeito atual"
-
-#: gui/page_home.c:772
-msgid "Lighting settings"
-msgstr "Configurações de iluminação"
-
-#: gui/page_home.c:792
-msgid "VID:PID"
-msgstr "VID:PID"
-
-#: gui/page_home.c:793
-msgid "Firmware id"
-msgstr "ID de firmware"
-
-#: gui/page_home.c:794
-msgid "Device details"
-msgstr "Detalhes do dispositivo"
-
-#: gui/page_home.c:815
-msgid "Compatibility"
-msgstr "Compatibilidade"
-
-#: gui/page_home.c:820
-msgid ""
-"- Macros fit 3 key/button press+release actions per button in a\n"
-"  single write; longer macros (up to 50) use a multi-packet write.\n"
-"- Lighting effect names beyond \"off\", \"rainbow\" and \"constant\"\n"
-"  are not reliably distinguished -- some share the same wire command.\n"
-"- Lift-off distance may also control \"wake mouse on motion\" --\n"
-"  a capture of that toggle landed on the exact same byte."
-msgstr ""
-"- Macros suportam até 3 ações de tecla/botão (pressionar+soltar) por\n"
-"  botão numa única gravação; macros maiores (até 50) usam uma\n"
-"  gravação em vários pacotes.\n"
-"- Efeitos de luz além de \"desligado\", \"arco-íris\" e \"constante\"\n"
-"  não são distinguidos com confiança -- alguns usam o mesmo comando.\n"
-"- A distância de lift-off pode também controlar \"acordar mouse com\n"
-"  movimento\" -- uma captura desse ajuste caiu exatamente no mesmo byte."
-
-#: gui/page_home.c:829
-msgid "Known limitations"
-msgstr "Limitações conhecidas"
-
-#: gui/page_home.c:833
-msgid "Restore factory defaults"
-msgstr "Restaurar os padrões de fábrica"
-
-#: gui/page_home.c:838
-msgid "Danger zone"
-msgstr "Zona de perigo"
-
-#: gui/page_mouse.c:22
-msgid "10 seconds"
-msgstr "10 segundos"
-
-#: gui/page_mouse.c:23
-msgid "30 seconds"
-msgstr "30 segundos"
-
-#: gui/page_mouse.c:24
-msgid "1 minute"
-msgstr "1 minuto"
-
-#: gui/page_mouse.c:25
-msgid "2 minutes"
-msgstr "2 minutos"
-
-#: gui/page_mouse.c:26
-msgid "5 minutes"
-msgstr "5 minutos"
-
-#: gui/page_mouse.c:27
-msgid "10 minutes"
-msgstr "10 minutos"
-
-#: gui/page_mouse.c:28
-msgid "20 minutes"
-msgstr "20 minutos"
-
-#: gui/page_mouse.c:29
-msgid "30 minutes"
-msgstr "30 minutos"
-
-#: gui/page_mouse.c:162
-#, c-format
-msgid "DPI value (stage %d)"
-msgstr "Valor de DPI (estágio %d)"
-
-#: gui/page_mouse.c:388
-msgid "DPI applied."
-msgstr "DPI aplicado."
-
-#: gui/page_mouse.c:388
-msgid "Failed to apply DPI."
-msgstr "Falha ao aplicar o DPI."
-
-#: gui/page_mouse.c:407
-msgid "DPI reset to factory defaults."
-msgstr "DPI restaurado aos padrões de fábrica."
-
-#: gui/page_mouse.c:407
-msgid "Failed to reset DPI."
-msgstr "Falha ao restaurar o DPI."
-
-#: gui/page_mouse.c:429 gui/page_mouse.c:540
-msgid "DPI colour applied."
-msgstr "Cor do DPI aplicada."
-
-#: gui/page_mouse.c:429 gui/page_mouse.c:540
-msgid "Failed to apply DPI colour."
-msgstr "Falha ao aplicar a cor do DPI."
-
-#: gui/page_mouse.c:448
-msgid "DPI colours reset to factory defaults."
-msgstr "Cores do DPI restauradas aos padrões de fábrica."
-
-#: gui/page_mouse.c:448
-msgid "Failed to reset DPI colours."
-msgstr "Falha ao restaurar as cores do DPI."
-
-#: gui/page_mouse.c:460
-msgid "Pick a report rate first."
-msgstr "Escolha uma taxa de resposta primeiro."
-
-#: gui/page_mouse.c:467
-msgid "Report rate applied."
-msgstr "Taxa de resposta aplicada."
-
-#: gui/page_mouse.c:469
-msgid "Failed to apply report rate."
-msgstr "Falha ao aplicar a taxa de resposta."
-
-#: gui/page_mouse.c:484
-msgid "Could not read the current sensor settings."
-msgstr "Não foi possível ler as configurações atuais do sensor."
-
-#: gui/page_mouse.c:500
-msgid "Sensor and power settings applied."
-msgstr "Configurações de sensor e energia aplicadas."
-
-#: gui/page_mouse.c:502
-msgid "Failed to apply sensor settings."
-msgstr "Falha ao aplicar as configurações do sensor."
-
-#: gui/page_mouse.c:563
-msgid "Configure the mouse's 6 DPI stages and their indicator colours."
-msgstr "Configure os 6 estágios de DPI do mouse e as cores dos indicadores."
-
-#: gui/page_mouse.c:590
-#, c-format
-msgid "Stage %d"
-msgstr "Estágio %d"
-
-#: gui/page_mouse.c:610
-msgid "DPI Stages Preview"
-msgstr "Prévia dos estágios de DPI"
-
-#: gui/page_mouse.c:622
-msgid ""
-"Values snap to what the mouse's DPI table can actually hold; the highlighted "
-"point is the selected stage."
-msgstr ""
-"Os valores se ajustam ao que a tabela de DPI do mouse realmente suporta; o "
-"ponto destacado é o estágio selecionado."
-
-#: gui/page_mouse.c:630
-msgid "Quick DPI"
-msgstr "DPI rápido"
-
-#: gui/page_mouse.c:655
-msgid "Apply DPI to mouse"
-msgstr "Aplicar DPI ao mouse"
-
-#: gui/page_mouse.c:663
-msgid "Reset to factory defaults"
-msgstr "Restaurar os padrões de fábrica"
-
-#: gui/page_mouse.c:675
-msgid "Stage settings"
-msgstr "Configurações do estágio"
-
-#: gui/page_mouse.c:695
-msgid "Indicator colour"
-msgstr "Cor do indicador"
-
-#: gui/page_mouse.c:710
-msgid "Quick colours"
-msgstr "Cores rápidas"
-
-#: gui/page_mouse.c:733
-msgid "Reset colours to factory defaults"
-msgstr "Restaurar cores aos padrões de fábrica"
-
-#: gui/page_mouse.c:766
-msgid "Apply report rate"
-msgstr "Aplicar taxa de resposta"
-
-#: gui/page_mouse.c:780
-msgid "Lift-off distance"
-msgstr "Distância de lift-off"
-
-#: gui/page_mouse.c:781
-msgid ""
-"Didn't show a visible effect in testing on this mouse -- may not do anything."
-msgstr ""
-"Não teve efeito visível nos testes com este mouse -- pode não fazer nada."
-
-#: gui/page_mouse.c:784
-msgid "1 mm"
-msgstr "1 mm"
-
-#: gui/page_mouse.c:785
-msgid "2 mm"
-msgstr "2 mm"
-
-#: gui/page_mouse.c:796
-msgid "Auto-sleep timer"
-msgstr "Temporizador de suspensão automática"
-
-#: gui/page_mouse.c:806
-msgid "Turn light off when idle"
-msgstr "Apagar a luz quando parado"
-
-#: gui/page_mouse.c:810
-msgid "Apply sensor and power"
-msgstr "Aplicar sensor e energia"
-
-#: gui/page_lighting.c:184
-msgid "Software lighting effect stopped (mouse not responding)."
-msgstr "Efeito de iluminação via software interrompido (mouse não respondeu)."
-
-#: gui/page_lighting.c:223
-msgid "Click to remove"
-msgstr "Clique para remover"
-
-#: gui/page_lighting.c:269
-msgid "Custom sequences hold up to 8 colours."
-msgstr "Sequências personalizadas guardam até 8 cores."
-
-#: gui/page_lighting.c:288
-msgid "Add at least one colour to the sequence first."
-msgstr "Adicione ao menos uma cor à sequência primeiro."
-
-#: gui/page_lighting.c:298 gui/page_lighting.c:332
-msgid "Failed to apply lighting."
-msgstr "Falha ao aplicar iluminação."
-
-#: gui/page_lighting.c:306
-msgid "Breathing effect started -- fades the mouse's colour live."
-msgstr "Efeito de respiração iniciado -- esmaece a cor do mouse ao vivo."
-
-#: gui/page_lighting.c:307
-msgid "Custom effect started -- plays your colour sequence live."
-msgstr ""
-"Efeito personalizado iniciado -- reproduz sua sequência de cores ao vivo."
-
-#: gui/page_lighting.c:308
-msgid "Rainbow started -- rotates the mouse's colour live."
-msgstr "Arco-íris iniciado -- gira a cor do mouse ao vivo."
-
-#: gui/page_lighting.c:330
-msgid "Lighting applied."
-msgstr "Iluminação aplicada."
-
-#: gui/page_lighting.c:517
-msgid "Failed to read that preset."
-msgstr "Falha ao ler essa predefinição."
-
-#: gui/page_lighting.c:533
-msgid "That preset has no colours saved."
-msgstr "Essa predefinição não tem cores salvas."
-
-#: gui/page_lighting.c:606
-msgid "Custom preset"
-msgstr "Predefinição personalizada"
-
-#: gui/page_lighting.c:632
-msgid "Enter a preset name."
-msgstr "Digite um nome para a predefinição."
-
-#: gui/page_lighting.c:635 gui/page_lighting.c:667
-msgid "Failed to save the preset."
-msgstr "Falha ao salvar a predefinição."
-
-#: gui/page_lighting.c:667
-msgid "Preset saved."
-msgstr "Predefinição salva."
-
-#: gui/page_lighting.c:677 gui/page_lighting.c:819
-msgid "Save as preset"
-msgstr "Salvar como predefinição"
-
-#: gui/page_lighting.c:678
-msgid ""
-"Saves the current effect, brightness, speed and colour as a one-click "
-"preset, stored on this PC."
-msgstr ""
-"Salva o efeito, brilho, velocidade e cor atuais como uma predefinição de um "
-"clique, guardada neste PC."
-
-#: gui/page_lighting.c:680
-msgid "Preset name"
-msgstr "Nome da predefinição"
-
-#: gui/page_lighting.c:683 gui/page_profiles.c:372
-msgid "Save"
-msgstr "Salvar"
-
-#: gui/page_lighting.c:698
-msgid ""
-"\"Off\" and \"Constant colour\" work exactly as shown. The others animate "
-"the light live from this app -- they stop if it closes."
-msgstr ""
-"\"Desligado\" e \"Cor constante\" funcionam exatamente como mostrado. Os "
-"outros animam a luz ao vivo por este aplicativo -- eles param se ele for "
-"fechado."
-
-#: gui/page_lighting.c:703
-msgid "Colour cycle (built-in)"
-msgstr "Ciclo de cor (embutido)"
-
-#: gui/page_lighting.c:704 gui/page_profiles.c:278
-msgid "Breathing"
-msgstr "Respiração"
-
-#: gui/page_lighting.c:704
-msgid "Custom"
-msgstr "Personalizado"
-
-#: gui/page_lighting.c:716
-msgid "Effect"
-msgstr "Efeito"
-
-#: gui/page_lighting.c:752
-msgid "Brightness"
-msgstr "Brilho"
-
-#: gui/page_lighting.c:753
-msgid "0 to 4 (25% steps)"
-msgstr "0 a 4 (passos de 25%)"
-
-#: gui/page_lighting.c:758
-msgid "Speed"
-msgstr "Velocidade"
-
-#: gui/page_lighting.c:768
-msgid "Colour"
-msgstr "Cor"
-
-#: gui/page_lighting.c:784
-msgid "Sequence"
-msgstr "Sequência"
-
-#: gui/page_lighting.c:785
-msgid "Pick a colour above, then tap + to add it. Tap a swatch to remove it."
-msgstr ""
-"Escolha uma cor acima e toque em + para adicioná-la. Toque numa cor para "
-"removê-la."
-
-#: gui/page_lighting.c:799
-msgid "Playback"
-msgstr "Reprodução"
-
-#: gui/page_lighting.c:800
-msgid "Fade between colours"
-msgstr "Transição suave entre as cores"
-
-#: gui/page_lighting.c:800
-msgid "Hard cut"
-msgstr "Troca abrupta"
-
-#: gui/page_lighting.c:811 gui/page_buttons.c:723
-msgid "Apply to mouse"
-msgstr "Aplicar ao mouse"
-
-#: gui/page_lighting.c:837
-msgid ""
-"\"Off\", rainbow cycle and constant colour are stored in the mouse and work "
-"without the software running; breathing and colour cycle need Ajazzy open."
-msgstr ""
-"\"Desligado\", ciclo arco-íris e cor constante ficam guardados no mouse e "
-"funcionam sem o programa aberto; respiração e ciclo de cor exigem o Ajazzy "
-"aberto."
-
-#: gui/page_lighting.c:855
-msgid "Lighting presets"
-msgstr "Predefinições de iluminação"
-
-#: gui/page_lighting.c:861
-msgid "Red"
-msgstr "Vermelho"
-
-#: gui/page_lighting.c:862
-msgid "Green"
-msgstr "Verde"
-
-#: gui/page_lighting.c:863
-msgid "Blue"
-msgstr "Azul"
-
-#: gui/page_lighting.c:882
-msgid "Hardware effect"
-msgstr "Efeito de hardware"
-
-#: gui/page_buttons.c:30
-msgid "Don't change"
-msgstr "Não alterar"
-
-#: gui/page_buttons.c:34
-msgid "Default (built-in click)"
-msgstr "Padrão (função original)"
-
-#: gui/page_buttons.c:38 gui/page_buttons.c:744
-msgid "Rapid-fire (auto-click)"
-msgstr "Disparo rápido (clique automático)"
-
-#: gui/page_buttons.c:43 gui/page_buttons.c:744
-msgid "Volume up"
-msgstr "Aumentar volume"
-
-#: gui/page_buttons.c:44 gui/page_buttons.c:744
-msgid "Volume down"
-msgstr "Diminuir volume"
-
-#: gui/page_buttons.c:45 gui/page_buttons.c:744
-msgid "Mute"
-msgstr "Mudo"
-
-#: gui/page_buttons.c:46 gui/page_buttons.c:744
-msgid "Play / Pause"
-msgstr "Play / Pausar"
-
-#: gui/page_buttons.c:47
-msgid "Next track"
-msgstr "Próxima faixa"
+#: gui/page_buttons.c:38
+msgid "Double click"
+msgstr "Clique duplo"
+
+#: gui/page_buttons.c:39
+msgid "Scroll up"
+msgstr "Rolar para cima"
+
+#: gui/page_buttons.c:40
+msgid "Scroll down"
+msgstr "Rolar para baixo"
+
+#: gui/page_buttons.c:41
+msgid "Scroll left"
+msgstr "Rolar para a esquerda"
+
+#: gui/page_buttons.c:42
+msgid "Scroll right"
+msgstr "Rolar para a direita"
+
+#: gui/page_buttons.c:43
+msgid "DPI cycle"
+msgstr "Alternar DPI"
+
+#: gui/page_buttons.c:44
+msgid "DPI up"
+msgstr "Aumentar DPI"
+
+#: gui/page_buttons.c:45
+msgid "DPI down"
+msgstr "Diminuir DPI"
+
+#: gui/page_buttons.c:46
+msgid "Disabled"
+msgstr "Desativado"
 
 #: gui/page_buttons.c:48
-msgid "Previous track"
-msgstr "Faixa anterior"
+msgid "Play / Pause"
+msgstr "Tocar / Pausar"
 
 #: gui/page_buttons.c:49
 msgid "Stop"
 msgstr "Parar"
 
 #: gui/page_buttons.c:50
-msgid "Browser home"
-msgstr "Página inicial"
+msgid "Previous track"
+msgstr "Faixa anterior"
 
 #: gui/page_buttons.c:51
-msgid "Browser back"
-msgstr "Voltar"
+msgid "Next track"
+msgstr "Próxima faixa"
 
 #: gui/page_buttons.c:52
-msgid "Browser forward"
-msgstr "Avançar"
+msgid "Volume up"
+msgstr "Aumentar volume"
 
 #: gui/page_buttons.c:53
+msgid "Volume down"
+msgstr "Diminuir volume"
+
+#: gui/page_buttons.c:54
+msgid "Mute"
+msgstr "Mudo"
+
+#: gui/page_buttons.c:55
+msgid "Media player"
+msgstr "Player de mídia"
+
+#: gui/page_buttons.c:57
+msgid "Screen brightness +"
+msgstr "Brilho da tela +"
+
+#: gui/page_buttons.c:58
+msgid "Screen brightness −"
+msgstr "Brilho da tela −"
+
+#: gui/page_buttons.c:59
+msgid "Calculator"
+msgstr "Calculadora"
+
+#: gui/page_buttons.c:60
+msgid "My computer"
+msgstr "Meu computador"
+
+#: gui/page_buttons.c:61
+msgid "E-mail"
+msgstr "E-mail"
+
+#: gui/page_buttons.c:62
+msgid "Browser home"
+msgstr "Página inicial do navegador"
+
+#: gui/page_buttons.c:63
+msgid "Browser back"
+msgstr "Voltar no navegador"
+
+#: gui/page_buttons.c:64
+msgid "Browser forward"
+msgstr "Avançar no navegador"
+
+#: gui/page_buttons.c:65
 msgid "Refresh page"
 msgstr "Atualizar página"
 
-#: gui/page_buttons.c:54
+#: gui/page_buttons.c:66
 msgid "Bookmarks"
 msgstr "Favoritos"
 
-#: gui/page_buttons.c:63 gui/page_buttons.c:68 gui/page_buttons.c:72
-#: gui/page_macro.c:50 gui/page_macro.c:55 gui/page_macro.c:59
+#: gui/page_buttons.c:67
+msgid "Show desktop"
+msgstr "Mostrar área de trabalho"
+
+#: gui/page_buttons.c:68
+msgid "Switch application"
+msgstr "Trocar de aplicativo"
+
+#: gui/page_buttons.c:69 gui/page_settings.c:330
+msgid "Copy"
+msgstr "Copiar"
+
+#: gui/page_buttons.c:70
+msgid "Paste"
+msgstr "Colar"
+
+#: gui/page_buttons.c:71
+msgid "Cut"
+msgstr "Recortar"
+
+#: gui/page_buttons.c:76
+msgid "Mouse"
+msgstr "Mouse"
+
+#: gui/page_buttons.c:76
+msgid "Media"
+msgstr "Mídia"
+
+#: gui/page_buttons.c:76 gui/page_settings.c:284
+msgid "System"
+msgstr "Sistema"
+
+#: gui/page_buttons.c:76
+msgid "Keyboard"
+msgstr "Teclado"
+
+#: gui/page_buttons.c:76 gui/page_buttons.c:145 gui/page_buttons.c:249
 #, c-format
-msgid "Key %c"
-msgstr "Tecla %c"
+msgid "Macro"
+msgstr "Macro"
 
-#: gui/page_buttons.c:91
-msgid "Button mapping reset to default."
-msgstr "Mapeamento de botões restaurado ao padrão."
+#: gui/page_buttons.c:76
+msgid "Rapid-fire"
+msgstr "Disparo rápido"
 
-#: gui/page_buttons.c:94
-msgid "Failed to reset buttons."
-msgstr "Falha ao restaurar os botões."
+#: gui/page_buttons.c:80
+msgid "DPI button"
+msgstr "Botão de DPI"
 
-#: gui/page_buttons.c:103
-msgid "Reset all buttons?"
-msgstr "Restaurar todos os botões?"
-
-#: gui/page_buttons.c:104
-msgid "This clears every button remap and restores the factory defaults."
-msgstr "Isso apaga todo remapeamento e restaura o padrão de fábrica."
-
-#: gui/page_buttons.c:106 gui/page_settings.c:234 gui/page_settings.c:285
-msgid "Reset"
-msgstr "Restaurar"
-
-#: gui/page_buttons.c:122 gui/page_macro.c:277 gui/page_macro.c:300
-msgid "Could not read the current button table."
-msgstr "Não foi possível ler a tabela de botões atual."
-
-#: gui/page_buttons.c:152
-msgid "Nothing selected to change."
-msgstr "Nenhuma mudança selecionada."
-
-#: gui/page_buttons.c:155
-msgid "Buttons remapped."
-msgstr "Botões remapeados."
-
-#: gui/page_buttons.c:158
-msgid "Failed to apply the remap."
-msgstr "Falha ao aplicar o remapeamento."
-
-#: gui/page_buttons.c:207
+#: gui/page_buttons.c:134
 #, c-format
-msgid "Currently: %s"
-msgstr "Atualmente: %s"
+msgid "Rapid-fire (every %d ms)"
+msgstr "Disparo rápido (a cada %d ms)"
 
-#: gui/page_buttons.c:211
+#: gui/page_buttons.c:140
 #, c-format
-msgid "Currently: plays a macro"
-msgstr "Atualmente: executa uma macro"
+msgid "Key: %s"
+msgstr "Tecla: %s"
 
-#: gui/page_buttons.c:214
+#: gui/page_buttons.c:149
 #, c-format
-msgid "Currently: custom code (0x%02x, not in this list)"
-msgstr "Atualmente: código personalizado (0x%02x, fora desta lista)"
+msgid "Custom (0x%02X)"
+msgstr "Personalizado (0x%02X)"
 
-#: gui/page_buttons.c:564
-msgid "This button can't be remapped."
-msgstr "Este botão não pode ser remapeado."
+#: gui/page_buttons.c:177
+msgid "Couldn't change the button."
+msgstr "Não foi possível alterar o botão."
 
-#: gui/page_buttons.c:574
-msgid "That function isn't available on this button."
-msgstr "Essa função não está disponível neste botão."
+#: gui/page_buttons.c:191
+msgid "Waiting for the mouse…"
+msgstr "Aguardando o mouse…"
 
-#: gui/page_buttons.c:595
-msgid ""
-"Pick a button from the list (or click a number on the mouse) to change its "
-"function."
-msgstr ""
-"Escolha um botão na lista (ou clique num número no desenho do mouse) para "
-"alterar sua função."
-
-#: gui/page_buttons.c:603
-msgid "Reset all to default"
-msgstr "Redefinir tudo ao padrão"
-
-#: gui/page_buttons.c:664
-msgid "Fixed by the manufacturer"
-msgstr "Fixo de fábrica"
-
-#: gui/page_buttons.c:679
-msgid "Function"
-msgstr "Função"
-
-#: gui/page_buttons.c:688
-msgid "Rapid-fire interval"
-msgstr "Intervalo do disparo rápido"
-
-#: gui/page_buttons.c:696
-msgid "Rapid-fire repeats"
-msgstr "Repetições do disparo rápido"
-
-#: gui/page_buttons.c:739
-msgid "Popular functions"
-msgstr "Funções populares"
-
-#: gui/page_buttons.c:740
-msgid "Applies to whichever button is selected above."
-msgstr "Aplica-se ao botão selecionado acima."
-
-#: gui/page_macro.c:32
-msgid "(none)"
-msgstr "(nenhum)"
-
-#: gui/page_macro.c:40
-msgid "Button 4"
-msgstr "Botão 4"
-
-#: gui/page_macro.c:41
-msgid "Button 5"
-msgstr "Botão 5"
-
-#: gui/page_macro.c:105
-msgid "plays a macro"
-msgstr "executa uma macro"
-
-#: gui/page_macro.c:105 gui/page_macro.c:375
-msgid "default"
-msgstr "padrão"
-
-#: gui/page_macro.c:153
+#: gui/page_buttons.c:214 gui/page_buttons.c:249
 #, c-format
-msgid "Action %u"
-msgstr "Ação %u"
+msgid "Macro: %s"
+msgstr "Macro: %s"
 
-#: gui/page_macro.c:219
-msgid "Remove this action"
-msgstr "Remover esta ação"
+#: gui/page_buttons.c:240
+#, c-format
+msgid "Button %d"
+msgstr "Botão %d"
 
-#: gui/page_macro.c:263
-msgid "Pick at least one action."
-msgstr "Escolha ao menos uma ação."
+#: gui/page_buttons.c:255
+msgid "Reading from the mouse…"
+msgstr "Lendo do mouse…"
 
-#: gui/page_macro.c:267
-msgid "Macro is too long to encode."
-msgstr "A macro é longa demais para codificar."
+#: gui/page_buttons.c:256 gui/page_buttons.c:741
+msgid "Default"
+msgstr "Padrão"
 
-#: gui/page_macro.c:270
-msgid "Failed to write macro content."
-msgstr "Falha ao gravar o conteúdo da macro."
+#: gui/page_buttons.c:256
+msgid "Custom"
+msgstr "Personalizado"
 
-#: gui/page_macro.c:285
-msgid "Macro saved to button."
-msgstr "Macro salva no botão."
+#: gui/page_buttons.c:269
+msgid "No key assigned"
+msgstr "Nenhuma tecla definida"
 
-#: gui/page_macro.c:288
-msgid "Failed to assign the macro to the button."
-msgstr "Falha ao atribuir a macro ao botão."
+#: gui/page_buttons.c:282
+msgid "This button plays a macro."
+msgstr "Este botão executa uma macro."
 
-#: gui/page_macro.c:308
-msgid "Button reset to default."
-msgstr "Botão restaurado ao padrão."
+#: gui/page_buttons.c:282
+msgid "This button has no macro."
+msgstr "Este botão não tem macro."
 
-#: gui/page_macro.c:311
-msgid "Failed to reset the button."
-msgstr "Falha ao restaurar o botão."
+#: gui/page_buttons.c:355
+msgid "Change the right button?"
+msgstr "Alterar o botão direito?"
 
-#: gui/page_macro.c:327
-msgid ""
-"Assign a short press-and-release sequence to one of the mouse's buttons."
-msgstr ""
+#: gui/page_buttons.c:356
+msgid "You'll lose the right click on this mouse until you reset the button."
+msgstr "Você ficará sem o clique direito neste mouse até redefinir o botão."
 
-#: gui/page_macro.c:350
-msgid "Button"
-msgstr "Botão"
+#: gui/page_buttons.c:358
+msgid "Change it"
+msgstr "Alterar"
 
-#: gui/page_macro.c:351
-msgid "Choose which button plays the macro on the left."
-msgstr "Escolha qual botão executa a macro à esquerda."
+#: gui/page_buttons.c:392
+msgid "Reset every button?"
+msgstr "Redefinir todos os botões?"
 
-#: gui/page_macro.c:392
-msgid ""
-"Actions are played in order, each as press-then-release, with the same delay "
-"between every step. The icon on the left shows whether a step is a keyboard "
-"key or a mouse button."
-msgstr ""
-"As ações são executadas em ordem, cada uma como pressionar-e-soltar, com o "
-"mesmo atraso entre cada passo. O ícone à esquerda mostra se um passo é uma "
-"tecla de teclado ou um botão do mouse."
+#: gui/page_buttons.c:393
+msgid "All buttons go back to their factory function."
+msgstr "Todos os botões voltam à função de fábrica."
 
-#: gui/page_macro.c:397
-msgid "Add action"
-msgstr "Adicionar ação"
+#: gui/page_buttons.c:395 gui/page_buttons.c:697
+msgid "Reset all"
+msgstr "Redefinir tudo"
 
-#: gui/page_macro.c:404
-msgid ""
-"Long macros (more than 3 actions) are less tested -- try the button after "
-"saving to make sure it plays back correctly."
-msgstr ""
-"Macros longas (mais de 3 ações) são menos testadas -- experimente o botão "
-"depois de salvar para garantir que funciona certo."
+#: gui/page_buttons.c:459
+msgid "Press the shortcut"
+msgstr "Pressione o atalho"
 
-#: gui/page_macro.c:419
-msgid "Delay between steps"
-msgstr "Atraso entre os passos"
+#: gui/page_buttons.c:460
+msgid "Press the key (with any Ctrl / Shift / Alt / Super) you want this button to send."
+msgstr "Pressione a tecla (com Ctrl / Shift / Alt / Super, se quiser) que este botão deve enviar."
 
-#: gui/page_macro.c:420
-msgid "Milliseconds"
-msgstr "Milissegundos"
+#: gui/page_buttons.c:462
+msgid "Waiting for a key…"
+msgstr "Aguardando uma tecla…"
 
-#: gui/page_macro.c:427
-msgid "Save to button"
-msgstr "Salvar no botão"
+#: gui/page_buttons.c:469
+msgid "Use this key"
+msgstr "Usar esta tecla"
 
-#: gui/page_macro.c:432
-msgid "Reset button to default"
-msgstr "Restaurar botão ao padrão"
+#: gui/page_buttons.c:518
+msgid "Choose a macro…"
+msgstr "Escolha uma macro…"
 
-#: gui/page_profiles.c:180
-msgid "Profile applied."
-msgstr "Perfil aplicado."
+#: gui/page_buttons.c:680
+msgid "Taken from the official driver but not yet tested on real hardware."
+msgstr "Extraído do driver oficial, mas ainda não testado em hardware real."
 
-#: gui/page_profiles.c:182
-msgid ""
-"Profile applied, but some settings failed to send -- check the connection."
-msgstr ""
-"Perfil aplicado, mas algumas configurações falharam ao enviar -- verifique a "
-"conexão."
+#: gui/page_buttons.c:702
+msgid "Pick a button, then choose what it does. Changes are written to the mouse immediately."
+msgstr "Escolha um botão e depois o que ele faz. As alterações são gravadas no mouse na hora."
 
-#: gui/page_profiles.c:212
-msgid "Failed to read that profile."
-msgstr "Falha ao ler esse perfil."
+#: gui/page_buttons.c:716
+msgid "Click a number to select that button."
+msgstr "Clique em um número para selecionar o botão."
 
-#: gui/page_profiles.c:231
+#: gui/page_buttons.c:745
+msgid "The left click is locked so you can't lose control of the mouse."
+msgstr "O clique esquerdo é travado para você não perder o controle do mouse."
+
+#: gui/page_buttons.c:775
+msgid "Record a shortcut…"
+msgstr "Gravar um atalho…"
+
+#: gui/page_buttons.c:779
+msgid "The button will press this key combination, e.g. Ctrl + Shift + M."
+msgstr "O botão vai pressionar esta combinação de teclas, por exemplo Ctrl + Shift + M."
+
+#: gui/page_buttons.c:792
+msgid "Play this macro"
+msgstr "Executar esta macro"
+
+#: gui/page_buttons.c:793
+msgid "Pick one from your library to put it on this button."
+msgstr "Escolha uma da sua biblioteca para colocá-la neste botão."
+
+#: gui/page_buttons.c:797
+msgid "Open the macro editor"
+msgstr "Abrir o editor de macros"
+
+#: gui/page_buttons.c:805
+msgid "Rapid-fire on this button"
+msgstr "Disparo rápido neste botão"
+
+#: gui/page_buttons.c:812
+msgid "Interval (ms)"
+msgstr "Intervalo (ms)"
+
+#: gui/page_buttons.c:813
+msgid "Smaller is faster."
+msgstr "Menor é mais rápido."
+
+#: gui/page_buttons.c:818
+msgid "Number of clicks"
+msgstr "Número de cliques"
+
+#: gui/page_buttons.c:819
+msgid "0 keeps clicking while the button is held."
+msgstr "0 continua clicando enquanto o botão estiver pressionado."
+
+#: gui/page_buttons.c:828
+msgid "Reset this button"
+msgstr "Redefinir este botão"
+
+#: gui/page_performance.c:25
+msgid "10 seconds"
+msgstr "10 segundos"
+
+#: gui/page_performance.c:25
+msgid "30 seconds"
+msgstr "30 segundos"
+
+#: gui/page_performance.c:25
+msgid "1 minute"
+msgstr "1 minuto"
+
+#: gui/page_performance.c:25
+msgid "2 minutes"
+msgstr "2 minutos"
+
+#: gui/page_performance.c:26
+msgid "5 minutes"
+msgstr "5 minutos"
+
+#: gui/page_performance.c:26
+msgid "10 minutes"
+msgstr "10 minutos"
+
+#: gui/page_performance.c:26
+msgid "20 minutes"
+msgstr "20 minutos"
+
+#: gui/page_performance.c:26
+msgid "30 minutes"
+msgstr "30 minutos"
+
+#: gui/page_performance.c:131
+#, c-format
+msgid "Stage %d"
+msgstr "Estágio %d"
+
+#: gui/page_performance.c:149
+msgid "Couldn't change the DPI."
+msgstr "Não foi possível alterar o DPI."
+
+#: gui/page_performance.c:156
+msgid "Couldn't change the indicator colour."
+msgstr "Não foi possível alterar a cor do indicador."
+
+#: gui/page_performance.c:262
+msgid "Couldn't change the report rate."
+msgstr "Não foi possível alterar a taxa de resposta."
+
+#: gui/page_performance.c:277
+msgid "Couldn't change the sensor settings."
+msgstr "Não foi possível alterar os ajustes do sensor."
+
+#: gui/page_performance.c:314
+msgid "Couldn't change the power settings."
+msgstr "Não foi possível alterar os ajustes de energia."
+
+#: gui/page_performance.c:471
+msgid "Some performance settings couldn't be applied."
+msgstr "Alguns ajustes de desempenho não puderam ser aplicados."
+
+#: gui/page_performance.c:591
+msgid "Battery low — Battery saver turned on."
+msgstr "Bateria baixa — Economia de bateria ativada."
+
+#: gui/page_performance.c:591
+msgid "Battery saver on."
+msgstr "Economia de bateria ligada."
+
+#: gui/page_performance.c:608
+msgid "Battery saver off — settings restored."
+msgstr "Economia de bateria desligada — ajustes restaurados."
+
+#: gui/page_performance.c:662
+msgid "Everything here applies to the mouse as soon as you change it."
+msgstr "Tudo aqui é aplicado ao mouse assim que você altera."
+
+#: gui/page_performance.c:673
+msgid "Stretches the mouse's battery: 250 Hz polling, a 1-minute sleep timer, lights off and light-off when idle. Your previous settings are restored when you switch it off."
+msgstr "Estica a bateria do mouse: 250 Hz, suspensão em 1 minuto, luzes apagadas e luz apagada quando parado. Seus ajustes anteriores são restaurados ao desligar."
+
+#: gui/page_performance.c:683
+msgid "Turn on automatically when the battery is low"
+msgstr "Ligar automaticamente quando a bateria estiver baixa"
+
+#: gui/page_performance.c:684
+msgid "Uses the threshold from Settings; switches off again once charging."
+msgstr "Usa o limite definido em Ajustes; desliga de novo ao carregar."
+
+#: gui/page_performance.c:691
+msgid "Pick a stage to edit it — it also becomes the active stage on the mouse."
+msgstr "Escolha um estágio para editar — ele também vira o estágio ativo no mouse."
+
+#: gui/page_performance.c:731
+msgid "Stage 1"
+msgstr "Estágio 1"
+
+#: gui/page_performance.c:761
+msgid "Indicator colour"
+msgstr "Cor do indicador"
+
+#: gui/page_performance.c:771
+msgid "Restore DPI defaults"
+msgstr "Restaurar DPI padrão"
+
+#: gui/page_performance.c:779
+msgid "Stages used by the DPI button"
+msgstr "Estágios usados pelo botão de DPI"
+
+#: gui/page_performance.c:780
+msgid "The DPI button cycles through this many stages."
+msgstr "O botão de DPI alterna entre esta quantidade de estágios."
+
+#: gui/page_performance.c:788
+msgid "How often the mouse reports its position. Higher is smoother; lower saves battery."
+msgstr "Com que frequência o mouse informa sua posição. Mais alto é mais suave; mais baixo economiza bateria."
+
+#: gui/page_performance.c:799
+msgid "Lift-off distance"
+msgstr "Distância de levantamento"
+
+#: gui/page_performance.c:800
+msgid "How far you can lift the mouse before it stops tracking."
+msgstr "Quanto você pode levantar o mouse antes de ele parar de rastrear."
+
+#: gui/page_performance.c:802
+msgid "Angle snapping"
+msgstr "Correção de ângulo"
+
+#: gui/page_performance.c:802
+msgid "Straightens slightly wobbly lines. Adds a little input lag."
+msgstr "Endireita linhas levemente tortas. Adiciona um pouco de atraso."
+
+#: gui/page_performance.c:803
+msgid "Ripple control"
+msgstr "Controle de ondulação"
+
+#: gui/page_performance.c:803
+msgid "Smooths the cursor above 9000 DPI."
+msgstr "Suaviza o cursor acima de 9000 DPI."
+
+#: gui/page_performance.c:804
+msgid "Motion sync"
+msgstr "Sincronização de movimento"
+
+#: gui/page_performance.c:804
+msgid "Syncs sensor reads with the report rate for steadier tracking."
+msgstr "Sincroniza as leituras do sensor com a taxa de resposta para um rastreamento mais estável."
+
+#: gui/page_performance.c:817
+msgid "Power and buttons"
+msgstr "Energia e botões"
+
+#: gui/page_performance.c:820
+msgid "Go to sleep after"
+msgstr "Suspender após"
+
+#: gui/page_performance.c:821
+msgid "Idle time before the mouse sleeps to save battery."
+msgstr "Tempo parado antes de o mouse entrar em suspensão para economizar bateria."
+
+#: gui/page_performance.c:831
+msgid "Wake on movement"
+msgstr "Acordar ao mover"
+
+#: gui/page_performance.c:832
+msgid "Moving the mouse wakes it; otherwise you have to click."
+msgstr "Mover o mouse o acorda; caso contrário é preciso clicar."
+
+#: gui/page_performance.c:837
+msgid "Turn the light off when idle"
+msgstr "Apagar a luz quando parado"
+
+#: gui/page_performance.c:838
+msgid "The LEDs are a big part of the battery drain."
+msgstr "Os LEDs são grande parte do consumo da bateria."
+
+#: gui/page_performance.c:843
+msgid "Button debounce (ms)"
+msgstr "Debounce dos botões (ms)"
+
+#: gui/page_performance.c:844
+msgid "Ignores bouncing after a click. Lower is faster; raise it if you get double clicks."
+msgstr "Ignora a trepidação após um clique. Menor é mais rápido; aumente se houver cliques duplos."
+
+#: gui/page_lighting.c:32
+msgid "Lights off"
+msgstr "Luzes apagadas"
+
+#: gui/page_lighting.c:33
+msgid "Steady"
+msgstr "Fixa"
+
+#: gui/page_lighting.c:33
+msgid "One solid colour"
+msgstr "Uma cor sólida"
+
+#: gui/page_lighting.c:34
+msgid "Breathing"
+msgstr "Respiração"
+
+#: gui/page_lighting.c:34
+msgid "Fades in and out, up to 7 colours"
+msgstr "Surge e some, até 7 cores"
+
+#: gui/page_lighting.c:35
+msgid "Flowing"
+msgstr "Fluxo"
+
+#: gui/page_lighting.c:35
+msgid "Built-in flowing light"
+msgstr "Luz em fluxo embutida"
+
+#: gui/page_lighting.c:36
+msgid "Neon"
+msgstr "Neon"
+
+#: gui/page_lighting.c:36
+msgid "Built-in neon effect"
+msgstr "Efeito neon embutido"
+
+#: gui/page_lighting.c:37 gui/page_lighting.c:535
+msgid "Colour wave"
+msgstr "Onda de cores"
+
+#: gui/page_lighting.c:37
+msgid "Built-in rainbow wave"
+msgstr "Onda arco-íris embutida"
+
+#: gui/page_lighting.c:38
+msgid "Colour cycle"
+msgstr "Ciclo de cor"
+
+#: gui/page_lighting.c:38
+msgid "Smooth hue rotation"
+msgstr "Rotação suave de matiz"
+
+#: gui/page_lighting.c:39
+msgid "Custom fade"
+msgstr "Transição personalizada"
+
+#: gui/page_lighting.c:39
+msgid "Cross-fades your colours"
+msgstr "Mistura suavemente as suas cores"
+
+#: gui/page_lighting.c:140
+msgid "Couldn't change the lighting."
+msgstr "Não foi possível alterar a iluminação."
+
+#: gui/page_lighting.c:204
+msgid "Software lighting effect stopped (mouse not responding)."
+msgstr "Efeito de luz por software interrompido (o mouse não responde)."
+
+#: gui/page_lighting.c:514
+msgid "Crimson"
+msgstr "Carmesim"
+
+#: gui/page_lighting.c:515
+msgid "Ocean"
+msgstr "Oceano"
+
+#: gui/page_lighting.c:516
+msgid "Mint"
+msgstr "Menta"
+
+#: gui/page_lighting.c:517
+msgid "White"
+msgstr "Branco"
+
+#: gui/page_lighting.c:525
+msgid "Rainbow breathing"
+msgstr "Respiração arco-íris"
+
+#: gui/page_lighting.c:529
+msgid "Violet breathing"
+msgstr "Respiração violeta"
+
+#: gui/page_lighting.c:662
+msgid "Delete this preset"
+msgstr "Excluir esta predefinição"
+
+#: gui/page_lighting.c:705
+msgid "Give the preset a name."
+msgstr "Dê um nome à predefinição."
+
+#: gui/page_lighting.c:708
+msgid "Preset saved."
+msgstr "Predefinição salva."
+
+#: gui/page_lighting.c:715
+msgid "Save lighting preset"
+msgstr "Salvar predefinição de iluminação"
+
+#: gui/page_lighting.c:716
+msgid "Saves the current effect, colours, brightness and speed."
+msgstr "Salva o efeito, as cores, o brilho e a velocidade atuais."
+
+#: gui/page_lighting.c:718
+msgid "Preset name"
+msgstr "Nome da predefinição"
+
+#: gui/page_lighting.c:722 gui/page_profiles.c:589
+msgid "Save"
+msgstr "Salvar"
+
+#: gui/page_lighting.c:788
+msgid "Save preset"
+msgstr "Salvar predefinição"
+
+#: gui/page_lighting.c:793
+msgid "Pick an effect — it applies to the mouse immediately."
+msgstr "Escolha um efeito — ele é aplicado ao mouse na hora."
+
+#: gui/page_lighting.c:798
+msgid "Effect"
+msgstr "Efeito"
+
+#: gui/page_lighting.c:823
+msgid "Software · needs Ajazzy open"
+msgstr "Software · exige o Ajazzy aberto"
+
+#: gui/page_lighting.c:850
+msgid "Brightness"
+msgstr "Brilho"
+
+#: gui/page_lighting.c:855
+msgid "Speed"
+msgstr "Velocidade"
+
+#: gui/page_lighting.c:855
+msgid "1 is slowest, 5 is fastest."
+msgstr "1 é o mais lento, 5 é o mais rápido."
+
+#: gui/page_lighting.c:860
+msgid "Colour"
+msgstr "Cor"
+
+#: gui/page_lighting.c:872
+msgid "Colours"
+msgstr "Cores"
+
+#: gui/page_lighting.c:872
+msgid "Used one after another."
+msgstr "Usadas uma após a outra."
+
+#: gui/page_lighting.c:876
+msgid "Number of colours"
+msgstr "Número de cores"
+
+#: gui/page_lighting.c:881
+msgid "Transition"
+msgstr "Transição"
+
+#: gui/page_lighting.c:882
+msgid "Smooth fade"
+msgstr "Transição suave"
+
+#: gui/page_lighting.c:882
+msgid "Hard cut"
+msgstr "Corte seco"
+
+#: gui/page_lighting.c:888
+msgid "Software effects run only while Ajazzy is open, and they keep the mouse's radio busy, which costs battery. Pick a built-in effect to save power. Your DPI indicator colours are restored when you switch away."
+msgstr "Efeitos por software só funcionam com o Ajazzy aberto e mantêm o rádio do mouse ocupado, o que gasta bateria. Escolha um efeito embutido para economizar energia. As cores do indicador de DPI são restauradas ao trocar de efeito."
+
+#: gui/page_lighting.c:899
+msgid "Use the multicolour set"
+msgstr "Usar o conjunto multicolorido"
+
+#: gui/page_lighting.c:907
+msgid "Presets"
+msgstr "Predefinições"
+
+#: gui/page_lighting.c:907
+msgid "One click to restore a look."
+msgstr "Um clique para restaurar um visual."
+
+#: gui/page_macros.c:229
+#, c-format
+msgid "“%s” is now on button %d."
+msgstr "“%s” está agora no botão %d."
+
+#: gui/page_macros.c:232
+msgid "Couldn't write the macro to the mouse."
+msgstr "Não foi possível gravar a macro no mouse."
+
+#: gui/page_macros.c:233
+msgid "Couldn't read the button table."
+msgstr "Não foi possível ler a tabela de botões."
+
+#: gui/page_macros.c:234
+msgid "Couldn't assign the macro to the button."
+msgstr "Não foi possível atribuir a macro ao botão."
+
+#: gui/page_macros.c:243
+msgid "This macro has no steps yet."
+msgstr "Esta macro ainda não tem passos."
+
+#: gui/page_macros.c:258
+msgid "Left button"
+msgstr "Botão esquerdo"
+
+#: gui/page_macros.c:259
+msgid "Right button"
+msgstr "Botão direito"
+
+#: gui/page_macros.c:260
+msgid "Middle button"
+msgstr "Botão do meio"
+
+#: gui/page_macros.c:261
+msgid "Back button"
+msgstr "Botão voltar"
+
+#: gui/page_macros.c:262
+msgid "Forward button"
+msgstr "Botão avançar"
+
+#: gui/page_macros.c:263
+msgid "Mouse button"
+msgstr "Botão do mouse"
+
+#: gui/page_macros.c:303
+#, c-format
+msgid "%d of %d steps"
+msgstr "%d de %d passos"
+
+#: gui/page_macros.c:371
+msgid "press"
+msgstr "pressionar"
+
+#: gui/page_macros.c:371
+msgid "release"
+msgstr "soltar"
+
+#: gui/page_macros.c:377
+msgid "then wait"
+msgstr "depois aguardar"
+
+#: gui/page_macros.c:414
+msgid "Nothing recorded yet"
+msgstr "Nada gravado ainda"
+
+#: gui/page_macros.c:415
+msgid "Press Record and perform the keys and clicks you want, or add steps by hand."
+msgstr "Pressione Gravar e faça as teclas e cliques desejados, ou adicione passos manualmente."
+
+#: gui/page_macros.c:460
+#, c-format
+msgid "%d steps"
+msgstr "%d passos"
+
+#: gui/page_macros.c:496 gui/page_macros.c:904
+msgid "New macro"
+msgstr "Nova macro"
+
+#: gui/page_macros.c:534
+msgid "Macro deleted."
+msgstr "Macro excluída."
+
+#: gui/page_macros.c:543
+#, c-format
+msgid "“%s” will be removed from your library. Buttons that already play it keep working until you change them."
+msgstr "“%s” será removida da sua biblioteca. Botões que já a executam continuam funcionando até você alterá-los."
+
+#: gui/page_macros.c:545
+msgid "Delete this macro?"
+msgstr "Excluir esta macro?"
+
+#: gui/page_macros.c:548 gui/page_macros.c:958 gui/page_profiles.c:531
+msgid "Delete"
+msgstr "Excluir"
+
+#: gui/page_macros.c:659
+#, c-format
+msgid "The macro is full (%d steps)."
+msgstr "A macro está cheia (%d passos)."
+
+#: gui/page_macros.c:674
+#, c-format
+msgid "%d steps recorded"
+msgstr "%d passos gravados"
+
+#: gui/page_macros.c:764
+msgid "The macro is full. Remove some steps first."
+msgstr "A macro está cheia. Remova alguns passos primeiro."
+
+#: gui/page_macros.c:769
+msgid "Recording…"
+msgstr "Gravando…"
+
+#: gui/page_macros.c:770
+msgid "Type keys and click in this window — your timing is recorded too. Press Stop when you're done."
+msgstr "Digite teclas e clique nesta janela — seu ritmo também é gravado. Pressione Parar quando terminar."
+
+#: gui/page_macros.c:772
+msgid "0 steps recorded"
+msgstr "0 passos gravados"
+
+#: gui/page_macros.c:780
+msgid "Stop recording"
+msgstr "Parar gravação"
+
+#: gui/page_macros.c:828
+msgid "Macro imported."
+msgstr "Macro importada."
+
+#: gui/page_macros.c:831
+msgid "That file isn't an Ajazzy macro."
+msgstr "Esse arquivo não é uma macro do Ajazzy."
+
+#: gui/page_macros.c:842
+msgid "Import a macro"
+msgstr "Importar uma macro"
+
+#: gui/page_macros.c:856
+msgid "Macro exported."
+msgstr "Macro exportada."
+
+#: gui/page_macros.c:858 gui/page_profiles.c:384
+msgid "Couldn't write the file."
+msgstr "Não foi possível gravar o arquivo."
+
+#: gui/page_macros.c:870
+msgid "Export this macro"
+msgstr "Exportar esta macro"
+
+#: gui/page_macros.c:902 gui/page_profiles.c:601
+msgid "Import"
+msgstr "Importar"
+
+#: gui/page_macros.c:911
+msgid "Record a sequence of keys and clicks, then put it on any button."
+msgstr "Grave uma sequência de teclas e cliques e coloque-a em qualquer botão."
+
+#: gui/page_macros.c:917
+msgid "Library"
+msgstr "Biblioteca"
+
+#: gui/page_macros.c:931
+msgid "No macro selected"
+msgstr "Nenhuma macro selecionada"
+
+#: gui/page_macros.c:932
+msgid "Create a macro, or pick one from the library."
+msgstr "Crie uma macro ou escolha uma da biblioteca."
+
+#: gui/page_macros.c:944
+msgid "Macro name"
+msgstr "Nome da macro"
+
+#: gui/page_macros.c:950
+msgid "Duplicate"
+msgstr "Duplicar"
+
+#: gui/page_macros.c:954 gui/page_profiles.c:527
+msgid "Export…"
+msgstr "Exportar…"
+
+#: gui/page_macros.c:969
+msgid "Record"
+msgstr "Gravar"
+
+#: gui/page_macros.c:972
+msgid "+ Left click"
+msgstr "+ Clique esquerdo"
+
+#: gui/page_macros.c:973
+msgid "+ Right click"
+msgstr "+ Clique direito"
+
+#: gui/page_macros.c:974
+msgid "+ Middle click"
+msgstr "+ Clique do meio"
+
+#: gui/page_macros.c:975
+msgid "Clear"
+msgstr "Limpar"
+
+#: gui/page_macros.c:989
+msgid "This is the most steps the mouse can store."
+msgstr "Este é o máximo de passos que o mouse consegue guardar."
+
+#: gui/page_macros.c:998
+msgid "Playback"
+msgstr "Reprodução"
+
+#: gui/page_macros.c:1000
+msgid "Once"
+msgstr "Uma vez"
+
+#: gui/page_macros.c:1000
+msgid "While held"
+msgstr "Enquanto pressionado"
+
+#: gui/page_macros.c:1000
+msgid "Until a click"
+msgstr "Até um clique"
+
+#: gui/page_macros.c:1000
+msgid "N times"
+msgstr "N vezes"
+
+#: gui/page_macros.c:1002
+msgid "Repeat"
+msgstr "Repetir"
+
+#: gui/page_macros.c:1003
+msgid "What happens when you press the button."
+msgstr "O que acontece quando você pressiona o botão."
+
+#: gui/page_macros.c:1005
+msgid "Number of repeats"
+msgstr "Número de repetições"
+
+#: gui/page_macros.c:1010
+msgid "Default delay (ms)"
+msgstr "Atraso padrão (ms)"
+
+#: gui/page_macros.c:1011
+msgid "Used for steps you add by hand."
+msgstr "Usado nos passos que você adiciona manualmente."
+
+#: gui/page_macros.c:1013
+msgid "Apply to all"
+msgstr "Aplicar a todos"
+
+#: gui/page_macros.c:1022
+msgid "Put it on button"
+msgstr "Colocar no botão"
+
+#: gui/page_macros.c:1023
+msgid "Button 2 (right)"
+msgstr "Botão 2 (direito)"
+
+#: gui/page_macros.c:1023
+msgid "Button 3 (middle)"
+msgstr "Botão 3 (meio)"
+
+#: gui/page_macros.c:1023
+msgid "Button 4 (back)"
+msgstr "Botão 4 (voltar)"
+
+#: gui/page_macros.c:1024
+msgid "Button 5 (forward)"
+msgstr "Botão 5 (avançar)"
+
+#: gui/page_macros.c:1030
+msgid "Write to the mouse"
+msgstr "Gravar no mouse"
+
+#: gui/page_profiles.c:278
+msgid "Some button settings couldn't be applied."
+msgstr "Alguns ajustes de botão não puderam ser aplicados."
+
+#: gui/page_profiles.c:347
+msgid "Couldn't read that profile."
+msgstr "Não foi possível ler esse perfil."
+
+#: gui/page_profiles.c:351
+msgid "Connect the mouse first."
+msgstr "Conecte o mouse primeiro."
+
+#: gui/page_profiles.c:367
 msgid "Profile deleted."
 msgstr "Perfil excluído."
 
-#: gui/page_profiles.c:278
-msgid "Constant"
-msgstr "Constante"
+#: gui/page_profiles.c:382
+msgid "Profile exported."
+msgstr "Perfil exportado."
 
-#: gui/page_profiles.c:283
+#: gui/page_profiles.c:400
+msgid "Export profile"
+msgstr "Exportar perfil"
+
+#: gui/page_profiles.c:414
 #, c-format
-msgid "%u DPI · %d Hz · %s"
-msgstr "%u DPI · %d Hz · %s"
+msgid "Imported “%s”."
+msgstr "“%s” importado."
 
-#: gui/page_profiles.c:294
+#: gui/page_profiles.c:417
+msgid "That file isn't an Ajazzy profile."
+msgstr "Esse arquivo não é um perfil do Ajazzy."
+
+#: gui/page_profiles.c:427
+msgid "Import profile"
+msgstr "Importar perfil"
+
+#: gui/page_profiles.c:477
+msgid "Last applied"
+msgstr "Último aplicado"
+
+#: gui/page_profiles.c:483
+#, c-format
+msgid "%u DPI · %d Hz"
+msgstr "%u DPI · %d Hz"
+
+#: gui/page_profiles.c:484
+#, c-format
+msgid "Lighting: %s"
+msgstr "Iluminação: %s"
+
+#: gui/page_profiles.c:485
+#, c-format
+msgid "%d macro(s) included"
+msgstr "%d macro(s) incluída(s)"
+
+#: gui/page_profiles.c:485
+#, c-format
+msgid "No macros"
+msgstr "Sem macros"
+
+#: gui/page_profiles.c:522
 msgid "Apply"
 msgstr "Aplicar"
 
-#: gui/page_profiles.c:321
-msgid "No saved profiles yet."
-msgstr "Nenhum perfil salvo ainda."
+#: gui/page_profiles.c:561
+msgid "Give the profile a name."
+msgstr "Dê um nome ao perfil."
 
-#: gui/page_profiles.c:344
-msgid "Enter a profile name."
-msgstr "Digite um nome para o perfil."
+#: gui/page_profiles.c:567
+#, c-format
+msgid "Saved “%s”."
+msgstr "“%s” salvo."
 
-#: gui/page_profiles.c:353
-msgid "Profile saved."
-msgstr "Perfil salvo."
+#: gui/page_profiles.c:570
+msgid "Couldn't save the profile."
+msgstr "Não foi possível salvar o perfil."
 
-#: gui/page_profiles.c:356
-msgid "Failed to save the profile."
-msgstr "Falha ao salvar o perfil."
+#: gui/page_profiles.c:579
+msgid "Connect the mouse to save its current settings."
+msgstr "Conecte o mouse para salvar as configurações atuais dele."
 
-#: gui/page_profiles.c:366
-msgid "Save current settings as a profile"
-msgstr "Salvar configurações atuais como perfil"
+#: gui/page_profiles.c:582 gui/page_profiles.c:603
+msgid "Save current settings"
+msgstr "Salvar configurações atuais"
 
-#: gui/page_profiles.c:367
-msgid ""
-"Captures DPI, DPI colours, report rate, the current lighting effect and "
-"button mapping. Macros aren't included -- see the Macro page."
-msgstr ""
-"Captura o DPI, as cores de DPI, a taxa de resposta, o efeito de iluminação "
-"atual e o mapeamento de botões. Macros não são incluídas -- veja a página de "
-"Macro."
+#: gui/page_profiles.c:583
+msgid "Captures DPI, report rate, sensor and power settings, lighting, buttons and their macros."
+msgstr "Captura DPI, taxa de resposta, ajustes de sensor e energia, iluminação, botões e suas macros."
 
-#: gui/page_profiles.c:369
-msgid "Profile name"
-msgstr "Nome do perfil"
+#: gui/page_profiles.c:585
+msgid "Profile name, e.g. FPS, Work, Travel"
+msgstr "Nome do perfil, ex.: FPS, Trabalho, Viagem"
 
-#: gui/page_profiles.c:393
-msgid "Saved on this computer."
-msgstr "Salvo neste computador."
+#: gui/page_profiles.c:610
+msgid "Switch the whole mouse between setups — for a game, for work, for travel."
+msgstr "Troque o mouse inteiro entre configurações — para jogar, trabalhar ou viajar."
 
-#: gui/page_profiles.c:401
-msgid "Save current as profile"
-msgstr "Salvar atual como perfil"
+#: gui/page_profiles.c:612
+msgid "No profiles yet"
+msgstr "Nenhum perfil ainda"
 
-#: gui/page_settings.c:157
+#: gui/page_profiles.c:613
+msgid "Set the mouse up the way you like, then press “Save current settings”."
+msgstr "Configure o mouse do seu jeito e depois pressione “Salvar configurações atuais”."
+
+#: gui/page_settings.c:141
 #, c-format
 msgid "Mouse battery low: %d%%"
 msgstr "Bateria do mouse baixa: %d%%"
 
-#: gui/page_settings.c:180
-msgid "Failed to update the autostart entry."
-msgstr "Falha ao atualizar a entrada de inicialização automática."
+#: gui/page_settings.c:163
+msgid "Couldn't update the startup entry."
+msgstr "Não foi possível atualizar a entrada de inicialização."
 
-#: gui/page_settings.c:214
-msgid "Local app data cleared. Restart Ajazzy to see the effect."
-msgstr ""
-"Dados locais do aplicativo apagados. Reinicie o Ajazzy para ver o efeito."
+#: gui/page_settings.c:227
+msgid "Local data cleared."
+msgstr "Dados locais apagados."
 
-#: gui/page_settings.c:231
-msgid "Reset application data?"
-msgstr "Redefinir os dados do aplicativo?"
+#: gui/page_settings.c:235
+msgid "Delete all local data?"
+msgstr "Excluir todos os dados locais?"
 
-#: gui/page_settings.c:232
-msgid ""
-"Deletes every saved profile and lighting preset, and this settings page's "
-"choices. Does not touch the mouse itself."
-msgstr ""
-"Apaga todos os perfis e predefinições de iluminação salvos, e as escolhas "
-"desta tela de ajustes. Não afeta o mouse em si."
+#: gui/page_settings.c:236
+msgid "Removes every saved profile, macro and lighting preset, and resets these settings. The mouse itself is not touched."
+msgstr "Remove todos os perfis, macros e predefinições de iluminação salvos e redefine estes ajustes. O mouse em si não é alterado."
 
-#: gui/page_settings.c:247
+#: gui/page_settings.c:239
+msgid "Delete everything"
+msgstr "Excluir tudo"
+
+#: gui/page_settings.c:272
+msgid "Diagnostics copied to the clipboard."
+msgstr "Diagnóstico copiado para a área de transferência."
+
+#: gui/page_settings.c:278
+msgid "How Ajazzy behaves on this computer."
+msgstr "Como o Ajazzy se comporta neste computador."
+
+#: gui/page_settings.c:282
 msgid "Appearance"
 msgstr "Aparência"
 
-#: gui/page_settings.c:250
-msgid "Theme"
-msgstr "Tema"
-
-#: gui/page_settings.c:251
-msgid "Follow system"
-msgstr "Seguir o sistema"
-
-#: gui/page_settings.c:251
+#: gui/page_settings.c:284
 msgid "Light"
 msgstr "Claro"
 
-#: gui/page_settings.c:251
+#: gui/page_settings.c:284
 msgid "Dark"
 msgstr "Escuro"
 
-#: gui/page_settings.c:260
+#: gui/page_settings.c:286
+msgid "Theme"
+msgstr "Tema"
+
+#: gui/page_settings.c:286
+msgid "Follow the system or force light/dark."
+msgstr "Seguir o sistema ou forçar claro/escuro."
+
+#: gui/page_settings.c:291
 msgid "Behaviour"
 msgstr "Comportamento"
 
-#: gui/page_settings.c:263
-msgid "Start on login"
-msgstr "Iniciar ao entrar no sistema"
+#: gui/page_settings.c:294
+msgid "Start with the computer"
+msgstr "Iniciar com o computador"
 
-#: gui/page_settings.c:264
-msgid "Launches Ajazzy minimised to the tray when you log in."
-msgstr "Inicia o Ajazzy minimizado na bandeja ao entrar no sistema."
+#: gui/page_settings.c:294
+msgid "Launch Ajazzy when you log in."
+msgstr "Abre o Ajazzy quando você entra na sessão."
 
-#: gui/page_settings.c:270
+#: gui/page_settings.c:295
+msgid "Start minimised to the tray"
+msgstr "Iniciar minimizado na bandeja"
+
+#: gui/page_settings.c:295
+msgid "Open in the background instead of showing the window."
+msgstr "Abre em segundo plano em vez de mostrar a janela."
+
+#: gui/page_settings.c:296
+msgid "Keep running in the tray when closed"
+msgstr "Continuar na bandeja ao fechar"
+
+#: gui/page_settings.c:296
+msgid "Closing the window hides it; the tray icon's Quit exits."
+msgstr "Fechar a janela só a oculta; Sair no ícone da bandeja encerra."
+
+#: gui/page_settings.c:297
+msgid "Re-apply my last profile on connect"
+msgstr "Reaplicar meu último perfil ao conectar"
+
+#: gui/page_settings.c:297
+msgid "Restores the last profile you applied whenever the mouse (re)connects."
+msgstr "Restaura o último perfil aplicado sempre que o mouse (re)conecta."
+
+#: gui/page_settings.c:311
+msgid "Notifications"
+msgstr "Notificações"
+
+#: gui/page_settings.c:314
 msgid "Low battery warning"
 msgstr "Aviso de bateria baixa"
 
-#: gui/page_settings.c:271
-msgid ""
-"Shows a one-time notification when the mouse drops below 20% and isn't "
-"charging."
-msgstr ""
-"Mostra um aviso único quando a bateria do mouse cai abaixo de 20% e ele não "
-"está carregando."
+#: gui/page_settings.c:315
+msgid "Notify once when the battery drops below the level below."
+msgstr "Avisa uma vez quando a bateria cair abaixo do nível abaixo."
 
-#: gui/page_settings.c:278
-msgid "Local data"
-msgstr "Dados locais"
+#: gui/page_settings.c:320
+msgid "Warn below (%)"
+msgstr "Avisar abaixo de (%)"
 
-#: gui/page_settings.c:280
-msgid ""
-"Profiles and lighting presets are stored on this PC (~/.config/ajazzy), not "
-"on the mouse."
-msgstr ""
-"Perfis e predefinições de iluminação são guardados neste PC (~/.config/"
-"ajazzy), não no mouse."
+#: gui/page_settings.c:328
+msgid "Support"
+msgstr "Suporte"
 
-#: gui/page_settings.c:283
-msgid "Reset application data"
-msgstr "Redefinir dados do aplicativo"
+#: gui/page_settings.c:332
+msgid "Copy diagnostics"
+msgstr "Copiar diagnóstico"
 
-#: gui/page_settings.c:284
-msgid "Deletes all saved profiles and lighting presets."
-msgstr "Apaga todos os perfis e predefinições de iluminação salvos."
+#: gui/page_settings.c:333
+msgid "Device, interface and battery details for bug reports."
+msgstr "Detalhes do dispositivo, interface e bateria para relatar problemas."
 
-#: gui/page_settings.c:294
+#: gui/page_settings.c:334
+msgid "Delete…"
+msgstr "Excluir…"
+
+#: gui/page_settings.c:336
+msgid "Delete local data"
+msgstr "Excluir dados locais"
+
+#: gui/page_settings.c:337
+msgid "Profiles, macros and presets are stored in ~/.config/ajazzy."
+msgstr "Perfis, macros e predefinições ficam em ~/.config/ajazzy."
+
+#: gui/page_settings.c:342
 msgid "About"
 msgstr "Sobre"
 
-#: gui/page_settings.c:297
+#: gui/page_settings.c:344
 msgid "Version"
 msgstr "Versão"
 
-#: gui/page_settings.c:302
+#: gui/page_settings.c:345
 msgid "Source code and releases"
 msgstr "Código-fonte e lançamentos"
 
 #: gui/tray.c:105
 msgid "Open Ajazzy"
-msgstr "Abrir Ajazzy"
+msgstr "Abrir o Ajazzy"
 
 #: gui/tray.c:118
 msgid "Refresh now"
@@ -1165,26 +1614,3 @@ msgstr "Atualizar agora"
 #: gui/tray.c:122
 msgid "Quit"
 msgstr "Sair"
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

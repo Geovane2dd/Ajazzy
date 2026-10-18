@@ -1,422 +1,626 @@
 /*
- * Profiles page: local (PC-side) configuration snapshots, saved as JSON
- * files under ~/.config/ajazzy/profiles/. This is NOT a mouse feature --
- * the protocol has no on-device profile storage (there's no "profile
- * slot" concept anywhere in the wire format, see protocol/hid.h), so a
- * "profile" here just means "everything this app already keeps cached
- * about the mouse, written to a file and reapplied later". Applying a
- * profile re-sends every field it captured through the same *_mt()
- * helpers/apply logic every other page already uses -- see
- * mouse_page_apply_profile_dpi()/_rate(), lighting_apply_profile(), and
- * buttons_apply_profile_table() in their respective files.
- *
- * Macros are intentionally NOT captured by a profile -- see the comment
- * on PROFILE_MACROS_NOTE below for why.
+ * Profiles: whole-mouse snapshots stored on this PC (the mouse has no
+ * onboard profile slots in this protocol). A profile captures DPI stages and
+ * colours, report rate, sensor and power settings, lighting, the button
+ * table and any macros those buttons play -- and puts all of it back with
+ * one click. Profiles can be exported/imported as plain JSON files.
  */
 
 #include <adwaita.h>
 #include <glib/gi18n.h>
 #include <string.h>
-#include <stdlib.h>
 #include <glib/gstdio.h>
 
 #include "app.h"
 #include "jsonutil.h"
 #include "../devices/device.h"
 
-/* Mirrors the RGB_* enum in page_lighting.c -- duplicated as plain
- * integers here (not shared) since a profile just needs to round-trip
- * whatever number was selected, not interpret it. */
-#define PROFILE_RGB_OFF 0
-#define PROFILE_RGB_RAINBOW 1
-#define PROFILE_RGB_CONSTANT 2
-#define PROFILE_RGB_SOFT_BREATHING 3
-#define PROFILE_RGB_SOFT_COLORCYCLE 4
+#define PROFILE_VERSION 2
 
 typedef struct {
     char name[64];
     uint16_t dpi[AJAZZ_DPI_STAGES];
     uint8_t dpi_color[AJAZZ_DPI_STAGES][3];
     int dpi_selected;
+    int dpi_count;
     int rate_hz;
-    int lighting_effect;
-    int lighting_brightness;
-    int lighting_speed;
-    uint8_t lighting_soft_color[3];
-    uint8_t buttons_raw[AJAZZ_KEY_SLOTS][3];
+    AppLight light;
+    AppSensor sensor;
+    uint8_t buttons[AJAZZ_KEY_SLOTS][3];
+    gboolean has_macro[AJAZZ_KEY_SLOTS];
+    AppMacro macro[AJAZZ_KEY_SLOTS];
 } Profile;
 
-static char *profile_path_for(const char *name)
+static GtkWidget *g_flow;
+static GtkWidget *g_empty;
+static GtkWidget *g_save_entry;
+static App *g_app;
+
+/* ---------------- files ---------------- */
+
+static char *profile_path(const char *name)
 {
     char *dir = ajazzy_config_subdir("profiles");
     if (!dir) return NULL;
     char *safe = g_strdup(name);
     for (char *p = safe; *p; p++)
         if (*p == '/' || *p == '\\') *p = '_';
-    char *filename = g_strdup_printf("%s.json", safe);
-    char *path = g_build_filename(dir, filename, NULL);
-    g_free(dir); g_free(safe); g_free(filename);
+    char *fn = g_strdup_printf("%s.json", safe);
+    char *path = g_build_filename(dir, fn, NULL);
+    g_free(dir); g_free(safe); g_free(fn);
     return path;
+}
+
+static char *profile_to_json(const Profile *p)
+{
+    GString *o = g_string_new("{\n  ");
+#define SEP g_string_append(o, ",\n  ")
+    json_put_int(o, "version", PROFILE_VERSION); SEP;
+    json_put_string(o, "name", p->name); SEP;
+    int tmp[64];
+    for (int i = 0; i < AJAZZ_DPI_STAGES; i++) tmp[i] = p->dpi[i];
+    json_put_int_array(o, "dpi", tmp, AJAZZ_DPI_STAGES); SEP;
+    for (int i = 0; i < AJAZZ_DPI_STAGES; i++)
+        for (int c = 0; c < 3; c++) tmp[i * 3 + c] = p->dpi_color[i][c];
+    json_put_int_array(o, "dpi_color", tmp, AJAZZ_DPI_STAGES * 3); SEP;
+    json_put_int(o, "dpi_selected", p->dpi_selected); SEP;
+    json_put_int(o, "dpi_count", p->dpi_count); SEP;
+    json_put_int(o, "rate_hz", p->rate_hz); SEP;
+
+    json_put_int(o, "l_effect", p->light.effect); SEP;
+    json_put_int(o, "l_brightness", p->light.brightness); SEP;
+    json_put_int(o, "l_speed", p->light.speed); SEP;
+    json_put_int(o, "l_transition", p->light.soft_transition); SEP;
+    json_put_int(o, "l_palette_n", p->light.palette_n); SEP;
+    for (int c = 0; c < 3; c++) tmp[c] = p->light.color[c];
+    json_put_int_array(o, "l_color", tmp, 3); SEP;
+    for (int i = 0; i < LIGHT_PALETTE_MAX; i++)
+        for (int c = 0; c < 3; c++) tmp[i * 3 + c] = p->light.palette[i][c];
+    json_put_int_array(o, "l_palette", tmp, LIGHT_PALETTE_MAX * 3); SEP;
+
+    json_put_int(o, "s_liftoff", p->sensor.liftoff_mm); SEP;
+    json_put_int(o, "s_angle", p->sensor.angle_snap); SEP;
+    json_put_int(o, "s_ripple", p->sensor.ripple); SEP;
+    json_put_int(o, "s_msync", p->sensor.motion_sync); SEP;
+    json_put_int(o, "s_sleep", p->sensor.sleep_seconds); SEP;
+    json_put_int(o, "s_wake", p->sensor.wake_on_move); SEP;
+    json_put_int(o, "s_idle", p->sensor.idle_light_off); SEP;
+    json_put_int(o, "s_debounce", p->sensor.debounce_ms); SEP;
+    json_put_int(o, "s_valid", p->sensor.valid); SEP;
+
+    for (int i = 0; i < AJAZZ_KEY_SLOTS; i++)
+        for (int c = 0; c < 3; c++) tmp[i * 3 + c] = p->buttons[i][c];
+    json_put_int_array(o, "buttons", tmp, AJAZZ_KEY_SLOTS * 3);
+
+    for (int s = 0; s < AJAZZ_KEY_SLOTS; s++) {
+        if (!p->has_macro[s]) continue;
+        const AppMacro *m = &p->macro[s];
+        char k[24];
+        SEP;
+        snprintf(k, sizeof(k), "m%d_name", s); json_put_string(o, k, m->name); SEP;
+        snprintf(k, sizeof(k), "m%d_loop", s); json_put_int(o, k, m->loop_mode); SEP;
+        snprintf(k, sizeof(k), "m%d_loops", s); json_put_int(o, k, m->loop_count); SEP;
+        snprintf(k, sizeof(k), "m%d_n", s); json_put_int(o, k, m->n_steps); SEP;
+        int kinds[AJAZZ_MACRO_MAX_CHUNKED_STEPS], delays[AJAZZ_MACRO_MAX_CHUNKED_STEPS], vals[AJAZZ_MACRO_MAX_CHUNKED_STEPS];
+        int n = m->n_steps ? m->n_steps : 1;
+        for (int i = 0; i < m->n_steps; i++) {
+            kinds[i] = m->steps[i].kind;
+            delays[i] = m->steps[i].delay_ms;
+            vals[i] = m->steps[i].value;
+        }
+        snprintf(k, sizeof(k), "m%d_kinds", s); json_put_int_array(o, k, kinds, n); SEP;
+        snprintf(k, sizeof(k), "m%d_delays", s); json_put_int_array(o, k, delays, n); SEP;
+        snprintf(k, sizeof(k), "m%d_values", s); json_put_int_array(o, k, vals, n);
+    }
+#undef SEP
+    g_string_append(o, "\n}\n");
+    return g_string_free(o, FALSE);
+}
+
+static gboolean profile_from_json(const char *t, Profile *p)
+{
+    memset(p, 0, sizeof(*p));
+    if (!json_get_string(t, "name", p->name, sizeof(p->name)) || !p->name[0])
+        return FALSE;
+    int tmp[64] = {0};
+    json_get_int_array(t, "dpi", tmp, AJAZZ_DPI_STAGES);
+    for (int i = 0; i < AJAZZ_DPI_STAGES; i++) p->dpi[i] = (uint16_t)tmp[i];
+    memset(tmp, 0, sizeof(tmp));
+    json_get_int_array(t, "dpi_color", tmp, AJAZZ_DPI_STAGES * 3);
+    for (int i = 0; i < AJAZZ_DPI_STAGES; i++)
+        for (int c = 0; c < 3; c++) p->dpi_color[i][c] = (uint8_t)tmp[i * 3 + c];
+    p->dpi_selected = json_get_int(t, "dpi_selected", 0);
+    p->dpi_count = json_get_int(t, "dpi_count", 5);
+    p->rate_hz = json_get_int(t, "rate_hz", 1000);
+
+    p->light.effect = json_get_int(t, "l_effect", LFX_STEADY);
+    if (p->light.effect < 0 || p->light.effect >= LFX_COUNT) p->light.effect = LFX_STEADY;
+    p->light.brightness = json_get_int(t, "l_brightness", 4);
+    p->light.speed = json_get_int(t, "l_speed", 2);
+    p->light.soft_transition = json_get_int(t, "l_transition", 0);
+    p->light.palette_n = json_get_int(t, "l_palette_n", LIGHT_PALETTE_MAX);
+    if (p->light.palette_n < 1 || p->light.palette_n > LIGHT_PALETTE_MAX) p->light.palette_n = LIGHT_PALETTE_MAX;
+    memset(tmp, 0, sizeof(tmp));
+    json_get_int_array(t, "l_color", tmp, 3);
+    for (int c = 0; c < 3; c++) p->light.color[c] = (uint8_t)tmp[c];
+    memset(tmp, 0, sizeof(tmp));
+    json_get_int_array(t, "l_palette", tmp, LIGHT_PALETTE_MAX * 3);
+    for (int i = 0; i < LIGHT_PALETTE_MAX; i++)
+        for (int c = 0; c < 3; c++) p->light.palette[i][c] = (uint8_t)tmp[i * 3 + c];
+
+    p->sensor.liftoff_mm = json_get_int(t, "s_liftoff", 1);
+    p->sensor.angle_snap = json_get_int(t, "s_angle", 0);
+    p->sensor.ripple = json_get_int(t, "s_ripple", 0);
+    p->sensor.motion_sync = json_get_int(t, "s_msync", 1);
+    p->sensor.sleep_seconds = json_get_int(t, "s_sleep", 300);
+    p->sensor.wake_on_move = json_get_int(t, "s_wake", 1);
+    p->sensor.idle_light_off = json_get_int(t, "s_idle", 0);
+    p->sensor.debounce_ms = json_get_int(t, "s_debounce", 8);
+    p->sensor.valid = json_get_int(t, "s_valid", 0) != 0;
+
+    memset(tmp, 0, sizeof(tmp));
+    json_get_int_array(t, "buttons", tmp, AJAZZ_KEY_SLOTS * 3);
+    for (int i = 0; i < AJAZZ_KEY_SLOTS; i++)
+        for (int c = 0; c < 3; c++) p->buttons[i][c] = (uint8_t)tmp[i * 3 + c];
+
+    for (int s = 0; s < AJAZZ_KEY_SLOTS; s++) {
+        char k[24];
+        AppMacro *m = &p->macro[s];
+        snprintf(k, sizeof(k), "m%d_name", s);
+        if (!json_get_string(t, k, m->name, sizeof(m->name)) || !m->name[0]) continue;
+        snprintf(k, sizeof(k), "m%d_loop", s); m->loop_mode = json_get_int(t, k, 0);
+        snprintf(k, sizeof(k), "m%d_loops", s); m->loop_count = json_get_int(t, k, 1);
+        snprintf(k, sizeof(k), "m%d_n", s);
+        int n = json_get_int(t, k, 0);
+        if (n < 0) n = 0;
+        if (n > AJAZZ_MACRO_MAX_CHUNKED_STEPS) n = AJAZZ_MACRO_MAX_CHUNKED_STEPS;
+        int kinds[AJAZZ_MACRO_MAX_CHUNKED_STEPS] = {0}, delays[AJAZZ_MACRO_MAX_CHUNKED_STEPS] = {0}, vals[AJAZZ_MACRO_MAX_CHUNKED_STEPS] = {0};
+        snprintf(k, sizeof(k), "m%d_kinds", s); json_get_int_array(t, k, kinds, n);
+        snprintf(k, sizeof(k), "m%d_delays", s); json_get_int_array(t, k, delays, n);
+        snprintf(k, sizeof(k), "m%d_values", s); json_get_int_array(t, k, vals, n);
+        for (int i = 0; i < n; i++)
+            m->steps[i] = (ajazz_macro_step_t){(uint8_t)kinds[i], (uint16_t)delays[i], (uint8_t)vals[i]};
+        m->n_steps = n;
+        p->has_macro[s] = n > 0;
+    }
+    return TRUE;
+}
+
+static gboolean profile_load_file(const char *file, Profile *p)
+{
+    char *dir = ajazzy_config_subdir("profiles");
+    if (!dir) return FALSE;
+    char *path = g_build_filename(dir, file, NULL);
+    char *t = json_read_file(path);
+    g_free(path); g_free(dir);
+    if (!t) return FALSE;
+    gboolean ok = profile_from_json(t, p);
+    g_free(t);
+    return ok;
 }
 
 static gboolean profile_save(const Profile *p)
 {
-    char *path = profile_path_for(p->name);
+    char *path = profile_path(p->name);
     if (!path) return FALSE;
-
-    GString *out = g_string_new("{\n  ");
-    json_put_string(out, "name", p->name); g_string_append(out, ",\n  ");
-
-    int dpi_ints[AJAZZ_DPI_STAGES];
-    for (int i = 0; i < AJAZZ_DPI_STAGES; i++) dpi_ints[i] = p->dpi[i];
-    json_put_int_array(out, "dpi", dpi_ints, AJAZZ_DPI_STAGES); g_string_append(out, ",\n  ");
-
-    int color_ints[AJAZZ_DPI_STAGES * 3];
-    for (int i = 0; i < AJAZZ_DPI_STAGES; i++)
-        for (int c = 0; c < 3; c++) color_ints[i * 3 + c] = p->dpi_color[i][c];
-    json_put_int_array(out, "dpi_color", color_ints, AJAZZ_DPI_STAGES * 3); g_string_append(out, ",\n  ");
-
-    json_put_int(out, "dpi_selected", p->dpi_selected); g_string_append(out, ",\n  ");
-    json_put_int(out, "rate_hz", p->rate_hz); g_string_append(out, ",\n  ");
-    json_put_int(out, "lighting_effect", p->lighting_effect); g_string_append(out, ",\n  ");
-    json_put_int(out, "lighting_brightness", p->lighting_brightness); g_string_append(out, ",\n  ");
-    json_put_int(out, "lighting_speed", p->lighting_speed); g_string_append(out, ",\n  ");
-
-    int soft_color_ints[3] = {p->lighting_soft_color[0], p->lighting_soft_color[1], p->lighting_soft_color[2]};
-    json_put_int_array(out, "lighting_soft_color", soft_color_ints, 3); g_string_append(out, ",\n  ");
-
-    int button_ints[AJAZZ_KEY_SLOTS * 3];
-    for (int i = 0; i < AJAZZ_KEY_SLOTS; i++)
-        for (int c = 0; c < 3; c++) button_ints[i * 3 + c] = p->buttons_raw[i][c];
-    json_put_int_array(out, "buttons_raw", button_ints, AJAZZ_KEY_SLOTS * 3);
-
-    g_string_append(out, "\n}\n");
-    gboolean ok = json_write_file(path, out->str);
-    g_string_free(out, TRUE);
+    char *js = profile_to_json(p);
+    gboolean ok = json_write_file(path, js);
+    g_free(js);
     g_free(path);
     return ok;
 }
 
-static gboolean profile_load(const char *filename, Profile *out)
+/* ---------------- capture & apply ---------------- */
+
+static void profile_capture(App *app, const char *name, Profile *p)
 {
+    memset(p, 0, sizeof(*p));
+    g_strlcpy(p->name, name, sizeof(p->name));
+    memcpy(p->dpi, app->dpi_cache, sizeof(p->dpi));
+    memcpy(p->dpi_color, app->dpi_color_cache, sizeof(p->dpi_color));
+    p->dpi_selected = app->dpi_selected;
+    p->dpi_count = app->dpi_count;
+    p->rate_hz = app->rate_hz > 0 ? app->rate_hz : 1000;
+    p->light = app->light;
+    p->sensor = app->sensor;
+    for (int i = 0; i < AJAZZ_KEY_SLOTS; i++) {
+        memcpy(p->buttons[i], app->key_table[i], 3);
+        if (p->buttons[i][0] == 0x90 && app->macro_slot_name[i][0]) {
+            AppMacro *m = macros_find(app, app->macro_slot_name[i]);
+            if (m) {
+                p->macro[i] = *m;
+                p->has_macro[i] = TRUE;
+            }
+        }
+    }
+}
+
+typedef struct {
+    Profile p;
+    int rc;
+} ApplyJob;
+
+/* One ordered job for the parts that depend on each other: macro content
+ * first, then the button table that points at it. */
+static void buttons_work(App *app, gpointer d)
+{
+    ApplyJob *j = d;
+    j->rc = 0;
+    ajazz_report_t reply;
+    if (ajazz_query_mt(app, AJAZZ_QUERY_KEY_TABLE, &reply, 1000) != 0) { j->rc = -1; return; }
+
+    for (int s = 0; s < AJAZZ_KEY_SLOTS; s++) {
+        if (!j->p.has_macro[s]) continue;
+        ajazz_report_t chunks[16];
+        int n = ajazz_build_macro_content_chunked(chunks, 16, (uint8_t)s, j->p.macro[s].steps, j->p.macro[s].n_steps);
+        for (int i = 0; i < n; i++)
+            if (ajazz_send_and_wait_mt(app, &chunks[i], 1000) != 0) { j->rc = -1; return; }
+    }
+    ajazz_report_t req;
+    ajazz_build_key_table_from_query(&req, &reply);
+    for (int i = 0; i < AJAZZ_KEY_SLOTS; i++)
+        memcpy(&req.payload[i * 3], j->p.buttons[i], 3);
+    ajazz_finalize(&req);
+    if (ajazz_send_and_wait_mt(app, &req, 1000) != 0)
+        j->rc = -1;
+}
+
+static gboolean refresh_later(gpointer user_data)
+{
+    app_refresh_all(user_data);
+    return G_SOURCE_REMOVE;
+}
+
+static void buttons_done(App *app, gpointer d)
+{
+    ApplyJob *j = d;
+    if (j->rc != 0)
+        toast(app, _("Some button settings couldn't be applied."));
+    for (int s = 0; s < AJAZZ_KEY_SLOTS; s++)
+        if (j->p.has_macro[s])
+            g_strlcpy(app->macro_slot_name[s], j->p.macro[s].name, sizeof(app->macro_slot_name[s]));
+    g_timeout_add(900, refresh_later, app);
+}
+
+static gboolean profile_apply(App *app, const Profile *p)
+{
+    if (!app->connected)
+        return FALSE;
+    app->dpi_count = p->dpi_count;
+    performance_apply_profile(app, p->dpi, p->dpi_color, p->dpi_selected, p->rate_hz, &p->sensor);
+    lighting_apply(app, &p->light);
+
+    ApplyJob *j = g_new0(ApplyJob, 1);
+    j->p = *p;
+    app_async(app, buttons_work, buttons_done, j, g_free);
+
+    g_strlcpy(app->settings_last_profile, p->name, sizeof(app->settings_last_profile));
+    settings_save(app);
+    return TRUE;
+}
+
+gboolean profiles_apply_by_name(App *app, const char *name)
+{
+    GDir *d;
     char *dir = ajazzy_config_subdir("profiles");
     if (!dir) return FALSE;
-    char *path = g_build_filename(dir, filename, NULL);
+    d = g_dir_open(dir, 0, NULL);
     g_free(dir);
-    char *text = json_read_file(path);
-    g_free(path);
-    if (!text) return FALSE;
-
-    memset(out, 0, sizeof(*out));
-    json_get_string(text, "name", out->name, sizeof(out->name));
-
-    int dpi_ints[AJAZZ_DPI_STAGES] = {0};
-    json_get_int_array(text, "dpi", dpi_ints, AJAZZ_DPI_STAGES);
-    for (int i = 0; i < AJAZZ_DPI_STAGES; i++) out->dpi[i] = (uint16_t)dpi_ints[i];
-
-    int color_ints[AJAZZ_DPI_STAGES * 3] = {0};
-    json_get_int_array(text, "dpi_color", color_ints, AJAZZ_DPI_STAGES * 3);
-    for (int i = 0; i < AJAZZ_DPI_STAGES; i++)
-        for (int c = 0; c < 3; c++) out->dpi_color[i][c] = (uint8_t)color_ints[i * 3 + c];
-
-    out->dpi_selected = json_get_int(text, "dpi_selected", 0);
-    out->rate_hz = json_get_int(text, "rate_hz", 1000);
-    out->lighting_effect = json_get_int(text, "lighting_effect", PROFILE_RGB_RAINBOW);
-    out->lighting_brightness = json_get_int(text, "lighting_brightness", 4);
-    out->lighting_speed = json_get_int(text, "lighting_speed", 2);
-
-    int soft_color_ints[3] = {0xe8, 0x39, 0x4a};
-    json_get_int_array(text, "lighting_soft_color", soft_color_ints, 3);
-    for (int c = 0; c < 3; c++) out->lighting_soft_color[c] = (uint8_t)soft_color_ints[c];
-
-    int button_ints[AJAZZ_KEY_SLOTS * 3] = {0};
-    json_get_int_array(text, "buttons_raw", button_ints, AJAZZ_KEY_SLOTS * 3);
-    for (int i = 0; i < AJAZZ_KEY_SLOTS; i++)
-        for (int c = 0; c < 3; c++) out->buttons_raw[i][c] = (uint8_t)button_ints[i * 3 + c];
-
-    g_free(text);
-    return TRUE;
-}
-
-/* Snapshot everything this app already keeps cached about the mouse --
- * plus a fresh query for the button table, since that's the one field no
- * page keeps a full always-current raw copy of (page_buttons.c only
- * keeps dropdown selections, not the raw wire bytes). */
-static gboolean profile_capture_current(App *app, const char *name, Profile *out)
-{
-    if (!ensure_connected(app))
-        return FALSE;
-
-    memset(out, 0, sizeof(*out));
-    g_strlcpy(out->name, name, sizeof(out->name));
-    memcpy(out->dpi, app->dpi_cache, sizeof(out->dpi));
-    memcpy(out->dpi_color, app->dpi_color_cache, sizeof(out->dpi_color));
-    out->dpi_selected = app->dpi_selected;
-    out->rate_hz = app->rate_hz > 0 ? app->rate_hz : 1000;
-    out->lighting_effect = app->rgb_effect ? (int)adw_combo_row_get_selected(app->rgb_effect) : PROFILE_RGB_RAINBOW;
-    out->lighting_brightness = app->rgb_brightness ? (int)adw_spin_row_get_value(app->rgb_brightness) : 4;
-    out->lighting_speed = app->rgb_speed ? (int)adw_spin_row_get_value(app->rgb_speed) : 2;
-    memcpy(out->lighting_soft_color, app->rgb_soft_color, sizeof(out->lighting_soft_color));
-
-    ajazz_report_t reply;
-    if (ajazz_query_mt(app, AJAZZ_QUERY_KEY_TABLE, &reply, 1000) == 0) {
-        for (int i = 0; i < AJAZZ_KEY_SLOTS; i++)
-            memcpy(out->buttons_raw[i], &reply.payload[i * 3], 3);
+    if (!d) return FALSE;
+    const char *e;
+    gboolean ok = FALSE;
+    while (!ok && (e = g_dir_read_name(d))) {
+        Profile p;
+        if (g_str_has_suffix(e, ".json") && profile_load_file(e, &p) && strcmp(p.name, name) == 0)
+            ok = profile_apply(app, &p);
     }
-    return TRUE;
+    g_dir_close(d);
+    return ok;
 }
 
-/* Re-sends everything a profile captured, page by page, reusing each
- * page's own apply logic (see the file comment at the top). Macros are
- * skipped -- see PROFILE_MACROS_NOTE. */
-static void profile_apply(App *app, const Profile *p)
+GPtrArray *profiles_list_names(void)
 {
-    gboolean ok_dpi = mouse_page_apply_profile_dpi(app, p->dpi, p->dpi_color, p->dpi_selected);
-    gboolean ok_rate = mouse_page_apply_profile_rate(app, p->rate_hz);
-    lighting_apply_profile(app, p->lighting_effect, p->lighting_brightness, p->lighting_speed, p->lighting_soft_color);
-    gboolean ok_buttons = buttons_apply_profile_table(app, p->buttons_raw);
-
-    if (ok_dpi && ok_rate && ok_buttons)
-        toast(app, _("Profile applied."));
-    else
-        toast(app, _("Profile applied, but some settings failed to send -- check the connection."));
-
-    refresh_home(app);
+    GPtrArray *a = g_ptr_array_new_with_free_func(g_free);
+    char *dir = ajazzy_config_subdir("profiles");
+    GDir *d = dir ? g_dir_open(dir, 0, NULL) : NULL;
+    const char *e;
+    while (d && (e = g_dir_read_name(d))) {
+        Profile p;
+        if (g_str_has_suffix(e, ".json") && profile_load_file(e, &p))
+            g_ptr_array_add(a, g_strdup(p.name));
+    }
+    if (d) g_dir_close(d);
+    g_free(dir);
+    return a;
 }
 
-/* PROFILE_MACROS_NOTE: macros are per-button variable-length action
- * lists (up to 50 press/release steps each, see gui/page_macro.c), built
- * up interactively through AdwComboRow widgets rather than kept as a
- * single always-current raw buffer anywhere in App. Capturing and
- * replaying that faithfully would mean either re-deriving it from 5
- * live device queries with a bespoke serializer for a format that's
- * still partly reverse-engineered (see the multi-packet write caveat in
- * gui/page_home.c's "Known limitations" card), or reaching into
- * page_macro.c's private widget arrays from here. Given the risk of a
- * subtly wrong reserialization silently writing a corrupted macro to
- * real hardware, this profile format leaves macros out entirely rather
- * than guess -- re-record macros by hand after applying a profile. */
+/* ---------------- cards ---------------- */
 
-static GtkWidget *g_profiles_list; /* the tile row, rebuilt by refresh_profiles() */
+static void populate(App *app);
 
-static void populate_profiles(App *app);
-
-static void on_apply_profile_clicked(GtkButton *btn, gpointer user_data)
+static void on_apply_clicked(GtkButton *b, gpointer user_data)
 {
-    (void)btn;
-    gpointer *data = user_data;
-    App *app = data[0];
-    char *filename = data[1];
+    (void)b;
+    App *app = ((gpointer *)user_data)[0];
+    const char *file = ((gpointer *)user_data)[1];
     Profile p;
-    if (!profile_load(filename, &p)) {
-        toast(app, _("Failed to read that profile."));
-        return;
-    }
-    profile_apply(app, &p);
+    if (!profile_load_file(file, &p)) { toast(app, _("Couldn't read that profile.")); return; }
+    if (profile_apply(app, &p))
+        toastf(app, _("Applying \xE2\x80\x9C%s\xE2\x80\x9D\xE2\x80\xA6"), p.name);
+    else
+        toast(app, _("Connect the mouse first."));
+    populate(app);
 }
 
-static void on_delete_profile_clicked(GtkButton *btn, gpointer user_data)
+static void on_delete_clicked(GtkButton *b, gpointer user_data)
 {
-    (void)btn;
-    gpointer *data = user_data;
-    App *app = data[0];
-    char *filename = data[1];
+    (void)b;
+    App *app = ((gpointer *)user_data)[0];
+    const char *file = ((gpointer *)user_data)[1];
     char *dir = ajazzy_config_subdir("profiles");
     if (dir) {
-        char *path = g_build_filename(dir, filename, NULL);
+        char *path = g_build_filename(dir, file, NULL);
         g_remove(path);
         g_free(path);
         g_free(dir);
     }
     toast(app, _("Profile deleted."));
-    populate_profiles(app);
+    populate(app);
 }
 
-static void free_gpointer_pair(gpointer data, GClosure *closure)
+static void on_export_done(GObject *src, GAsyncResult *res, gpointer user_data)
 {
-    (void)closure;
-    gpointer *pair = data;
-    g_free(pair[1]);
-    g_free(pair);
+    gpointer *d = user_data;
+    App *app = d[0];
+    char *file = d[1];
+    GFile *f = gtk_file_dialog_save_finish(GTK_FILE_DIALOG(src), res, NULL);
+    if (f) {
+        char *dir = ajazzy_config_subdir("profiles");
+        char *path = dir ? g_build_filename(dir, file, NULL) : NULL;
+        char *text = path ? json_read_file(path) : NULL;
+        if (text && g_file_replace_contents(f, text, strlen(text), NULL, FALSE, G_FILE_CREATE_NONE, NULL, NULL, NULL))
+            toast(app, _("Profile exported."));
+        else
+            toast(app, _("Couldn't write the file."));
+        g_free(text); g_free(path); g_free(dir);
+        g_object_unref(f);
+    }
+    g_free(file);
+    g_free(d);
 }
 
-/* One tile per saved profile: name, a one-line summary (DPI/Hz/effect),
- * and Apply/Delete. Not "the active one highlighted" -- there's no
- * concept of a currently-applied profile once you've hand-edited a
- * setting afterward, so this doesn't pretend to track one. */
-static void populate_profiles(App *app)
+static void on_export_clicked(GtkButton *b, gpointer user_data)
 {
-    GtkWidget *child;
-    while ((child = gtk_widget_get_first_child(g_profiles_list)))
-        gtk_box_remove(GTK_BOX(g_profiles_list), child);
+    (void)b;
+    gpointer *src = user_data;
+    gpointer *d = g_new(gpointer, 2);
+    d[0] = src[0];
+    d[1] = g_strdup(src[1]);
+    GtkFileDialog *dlg = gtk_file_dialog_new();
+    gtk_file_dialog_set_title(dlg, _("Export profile"));
+    gtk_file_dialog_set_initial_name(dlg, src[1]);
+    gtk_file_dialog_save(dlg, GTK_WINDOW(((App *)src[0])->win), NULL, on_export_done, d);
+    g_object_unref(dlg);
+}
+
+static void on_import_done(GObject *src, GAsyncResult *res, gpointer user_data)
+{
+    App *app = user_data;
+    GFile *f = gtk_file_dialog_open_finish(GTK_FILE_DIALOG(src), res, NULL);
+    if (!f) return;
+    char *text = NULL;
+    Profile p;
+    if (g_file_load_contents(f, NULL, &text, NULL, NULL, NULL) && profile_from_json(text, &p) && profile_save(&p)) {
+        toastf(app, _("Imported \xE2\x80\x9C%s\xE2\x80\x9D."), p.name);
+        populate(app);
+    } else {
+        toast(app, _("That file isn't an Ajazzy profile."));
+    }
+    g_free(text);
+    g_object_unref(f);
+}
+
+static void on_import_clicked(GtkButton *b, gpointer user_data)
+{
+    (void)b;
+    GtkFileDialog *dlg = gtk_file_dialog_new();
+    gtk_file_dialog_set_title(dlg, _("Import profile"));
+    gtk_file_dialog_open(dlg, GTK_WINDOW(((App *)user_data)->win), NULL, on_import_done, user_data);
+    g_object_unref(dlg);
+}
+
+static void free_pair(gpointer data, GClosure *c)
+{
+    (void)c;
+    gpointer *p = data;
+    g_free(p[1]);
+    g_free(p);
+}
+
+static gpointer *pair(App *app, const char *file)
+{
+    gpointer *d = g_new(gpointer, 2);
+    d[0] = app;
+    d[1] = g_strdup(file);
+    return d;
+}
+
+static void populate(App *app)
+{
+    GtkWidget *c;
+    while ((c = gtk_widget_get_first_child(g_flow)))
+        gtk_flow_box_remove(GTK_FLOW_BOX(g_flow), c);
 
     char *dir = ajazzy_config_subdir("profiles");
-    if (!dir) return;
+    GDir *d = dir ? g_dir_open(dir, 0, NULL) : NULL;
+    int count = 0;
+    const char *e;
+    while (d && (e = g_dir_read_name(d))) {
+        Profile p;
+        if (!g_str_has_suffix(e, ".json") || !profile_load_file(e, &p))
+            continue;
+        count++;
 
-    GDir *gdir = g_dir_open(dir, 0, NULL);
-    gboolean any = FALSE;
-    if (gdir) {
-        const char *entry;
-        while ((entry = g_dir_read_name(gdir))) {
-            if (!g_str_has_suffix(entry, ".json"))
-                continue;
-            Profile p;
-            if (!profile_load(entry, &p))
-                continue;
-            any = TRUE;
+        GtkWidget *cb;
+        GtkWidget *card = ui_card_new(NULL, NULL, &cb);
+        gtk_widget_set_size_request(card, 280, -1);
 
-            GtkWidget *tile = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
-            gtk_widget_add_css_class(tile, "ajazz-card");
-            gtk_widget_set_size_request(tile, 200, -1);
+        GtkWidget *top = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+        gtk_widget_add_css_class(top, "aj-card-head");
+        GtkWidget *name = gtk_label_new(p.name);
+        gtk_widget_add_css_class(name, "aj-card-title");
+        gtk_label_set_ellipsize(GTK_LABEL(name), PANGO_ELLIPSIZE_END);
+        gtk_widget_set_hexpand(name, TRUE);
+        gtk_widget_set_halign(name, GTK_ALIGN_START);
+        gtk_box_append(GTK_BOX(top), name);
+        if (strcmp(app->settings_last_profile, p.name) == 0)
+            gtk_box_append(GTK_BOX(top), ui_chip_new(_("Last applied"), UI_CHIP_ACCENT));
+        gtk_box_append(GTK_BOX(cb), top);
 
-            GtkWidget *name_lbl = gtk_label_new(p.name[0] ? p.name : entry);
-            gtk_widget_add_css_class(name_lbl, "heading");
-            gtk_widget_set_halign(name_lbl, GTK_ALIGN_START);
-            gtk_box_append(GTK_BOX(tile), name_lbl);
-
-            static const char *effect_names[] = {
-                N_("Off"), N_("Rainbow"), N_("Constant"), N_("Breathing"), N_("Colour cycle"),
-            };
-            const char *effect_name = (p.lighting_effect >= 0 && p.lighting_effect < (int)G_N_ELEMENTS(effect_names))
-                ? gettext(effect_names[p.lighting_effect]) : "?";
-            char summary[96];
-            snprintf(summary, sizeof(summary), _("%u DPI \xC2\xB7 %d Hz \xC2\xB7 %s"),
-                p.dpi[p.dpi_selected < AJAZZ_DPI_STAGES ? p.dpi_selected : 0], p.rate_hz, effect_name);
-            GtkWidget *sum_lbl = gtk_label_new(summary);
-            gtk_widget_add_css_class(sum_lbl, "dim-label");
-            gtk_widget_add_css_class(sum_lbl, "caption");
-            gtk_widget_set_halign(sum_lbl, GTK_ALIGN_START);
-            gtk_box_append(GTK_BOX(tile), sum_lbl);
-
-            GtkWidget *btn_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-            gtk_widget_set_margin_top(btn_row, 4);
-
-            GtkWidget *apply_btn = gtk_button_new_with_label(_("Apply"));
-            gtk_widget_add_css_class(apply_btn, "suggested-action");
-            gtk_widget_add_css_class(apply_btn, "pill");
-            gtk_widget_set_hexpand(apply_btn, TRUE);
-            gpointer *apply_data = g_new(gpointer, 2);
-            apply_data[0] = app;
-            apply_data[1] = g_strdup(entry);
-            g_signal_connect_data(apply_btn, "clicked", G_CALLBACK(on_apply_profile_clicked), apply_data, free_gpointer_pair, 0);
-            gtk_box_append(GTK_BOX(btn_row), apply_btn);
-
-            GtkWidget *delete_btn = gtk_button_new_from_icon_name("user-trash-symbolic");
-            gtk_widget_add_css_class(delete_btn, "destructive-action");
-            gtk_widget_add_css_class(delete_btn, "circular");
-            gpointer *delete_data = g_new(gpointer, 2);
-            delete_data[0] = app;
-            delete_data[1] = g_strdup(entry);
-            g_signal_connect_data(delete_btn, "clicked", G_CALLBACK(on_delete_profile_clicked), delete_data, free_gpointer_pair, 0);
-            gtk_box_append(GTK_BOX(btn_row), delete_btn);
-
-            gtk_box_append(GTK_BOX(tile), btn_row);
-            gtk_box_append(GTK_BOX(g_profiles_list), tile);
+        int macros = 0;
+        for (int s = 0; s < AJAZZ_KEY_SLOTS; s++) macros += p.has_macro[s];
+        char l1[96], l2[96], l3[96];
+        snprintf(l1, sizeof(l1), _("%u DPI \xC2\xB7 %d Hz"), p.dpi[p.dpi_selected < AJAZZ_DPI_STAGES ? p.dpi_selected : 0], p.rate_hz);
+        snprintf(l2, sizeof(l2), _("Lighting: %s"), lighting_effect_name(p.light.effect));
+        snprintf(l3, sizeof(l3), macros ? _("%d macro(s) included") : _("No macros"), macros);
+        GtkWidget *info = gtk_box_new(GTK_ORIENTATION_VERTICAL, 3);
+        gtk_widget_set_margin_start(info, 18);
+        gtk_widget_set_margin_end(info, 18);
+        const char *ls[] = {l1, l2, l3};
+        for (int i = 0; i < 3; i++) {
+            GtkWidget *l = gtk_label_new(ls[i]);
+            gtk_widget_add_css_class(l, "aj-card-desc");
+            gtk_widget_set_halign(l, GTK_ALIGN_START);
+            gtk_box_append(GTK_BOX(info), l);
         }
-        g_dir_close(gdir);
+        /* DPI colour dots */
+        GtkWidget *dots = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+        gtk_widget_set_margin_top(dots, 6);
+        for (int i = 0; i < AJAZZ_DPI_STAGES; i++) {
+            GtkWidget *dot = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+            gtk_widget_add_css_class(dot, "aj-stage-dot");
+            char nm[32], css[96];
+            snprintf(nm, sizeof(nm), "pf%p-%d", (void *)dot, i);
+            gtk_widget_set_name(dot, nm);
+            snprintf(css, sizeof(css), "#%s { background: #%02x%02x%02x; }", nm,
+                p.dpi_color[i][0], p.dpi_color[i][1], p.dpi_color[i][2]);
+            GtkCssProvider *prov = gtk_css_provider_new();
+            gtk_css_provider_load_from_string(prov, css);
+            gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(prov),
+                GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+            g_object_unref(prov);
+            gtk_box_append(GTK_BOX(dots), dot);
+        }
+        gtk_box_append(GTK_BOX(info), dots);
+        gtk_box_append(GTK_BOX(cb), info);
+
+        GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+        gtk_widget_set_margin_start(row, 18);
+        gtk_widget_set_margin_end(row, 14);
+        gtk_widget_set_margin_top(row, 14);
+        gtk_widget_set_margin_bottom(row, 16);
+        GtkWidget *apply = ui_button_new(_("Apply"), "object-select-symbolic", "primary");
+        gtk_widget_set_hexpand(apply, TRUE);
+        gtk_widget_set_sensitive(apply, app->connected);
+        g_signal_connect_data(apply, "clicked", G_CALLBACK(on_apply_clicked), pair(app, e), free_pair, 0);
+        GtkWidget *exp = gtk_button_new_from_icon_name("document-save-as-symbolic");
+        gtk_widget_set_tooltip_text(exp, _("Export\xE2\x80\xA6"));
+        gtk_widget_add_css_class(exp, "flat");
+        g_signal_connect_data(exp, "clicked", G_CALLBACK(on_export_clicked), pair(app, e), free_pair, 0);
+        GtkWidget *del = gtk_button_new_from_icon_name("user-trash-symbolic");
+        gtk_widget_set_tooltip_text(del, _("Delete"));
+        gtk_widget_add_css_class(del, "flat");
+        g_signal_connect_data(del, "clicked", G_CALLBACK(on_delete_clicked), pair(app, e), free_pair, 0);
+        gtk_box_append(GTK_BOX(row), apply);
+        gtk_box_append(GTK_BOX(row), exp);
+        gtk_box_append(GTK_BOX(row), del);
+        gtk_box_append(GTK_BOX(cb), row);
+
+        gtk_flow_box_append(GTK_FLOW_BOX(g_flow), card);
     }
+    if (d) g_dir_close(d);
     g_free(dir);
 
-    if (!any) {
-        GtkWidget *empty = gtk_label_new(_("No saved profiles yet."));
-        gtk_widget_add_css_class(empty, "dim-label");
-        gtk_box_append(GTK_BOX(g_profiles_list), empty);
-    }
+    gtk_widget_set_visible(g_empty, count == 0);
+    gtk_widget_set_visible(g_flow, count > 0);
 }
 
 void refresh_profiles(App *app)
 {
-    populate_profiles(app);
+    populate(app);
 }
 
-/* AdwEntryRow inside a plain AdwAlertDialog is the simplest "ask for one
- * string" prompt libadwaita has without pulling in a bespoke dialog --
- * same pattern as the factory-reset confirmation elsewhere in this app,
- * just with a text entry added as the dialog's extra child. */
-static GtkWidget *g_save_name_entry;
-static void on_save_profile_dialog_response(AdwAlertDialog *dialog, const char *response, gpointer user_data)
+/* ---------------- save dialog ---------------- */
+
+static void on_save_response(AdwAlertDialog *dlg, const char *resp, gpointer user_data)
 {
+    (void)dlg;
     App *app = user_data;
-    if (strcmp(response, "save") != 0)
-        return;
-    const char *name = gtk_editable_get_text(GTK_EDITABLE(g_save_name_entry));
-    if (!name || !*name) {
-        toast(app, _("Enter a profile name."));
-        return;
-    }
+    if (strcmp(resp, "save") != 0) return;
+    const char *name = gtk_editable_get_text(GTK_EDITABLE(g_save_entry));
+    if (!name || !*name) { toast(app, _("Give the profile a name.")); return; }
     Profile p;
-    if (!profile_capture_current(app, name, &p)) {
-        toast(app, _("Connect the mouse first."));
-        return;
-    }
+    profile_capture(app, name, &p);
     if (profile_save(&p)) {
-        toast(app, _("Profile saved."));
-        populate_profiles(app);
+        g_strlcpy(app->settings_last_profile, p.name, sizeof(app->settings_last_profile));
+        settings_save(app);
+        toastf(app, _("Saved \xE2\x80\x9C%s\xE2\x80\x9D."), p.name);
+        populate(app);
     } else {
-        toast(app, _("Failed to save the profile."));
+        toast(app, _("Couldn't save the profile."));
     }
-    (void)dialog;
 }
 
-static void on_save_profile_clicked(GtkButton *btn, gpointer user_data)
+static void on_save_clicked(GtkButton *b, gpointer user_data)
 {
-    (void)btn;
+    (void)b;
     App *app = user_data;
-    AdwAlertDialog *dialog = ADW_ALERT_DIALOG(adw_alert_dialog_new(
-        _("Save current settings as a profile"),
-        _("Captures DPI, DPI colours, report rate, the current lighting effect and button mapping. Macros aren't included -- see the Macro page.")));
-    g_save_name_entry = gtk_entry_new();
-    gtk_entry_set_placeholder_text(GTK_ENTRY(g_save_name_entry), _("Profile name"));
-    adw_alert_dialog_set_extra_child(dialog, g_save_name_entry);
-    adw_alert_dialog_add_response(dialog, "cancel", _("Cancel"));
-    adw_alert_dialog_add_response(dialog, "save", _("Save"));
-    adw_alert_dialog_set_response_appearance(dialog, "save", ADW_RESPONSE_SUGGESTED);
-    adw_alert_dialog_set_default_response(dialog, "save");
-    adw_alert_dialog_set_close_response(dialog, "cancel");
-    g_signal_connect(dialog, "response", G_CALLBACK(on_save_profile_dialog_response), app);
-    adw_dialog_present(ADW_DIALOG(dialog), GTK_WIDGET(app->win));
+    if (!app->connected) {
+        toast(app, _("Connect the mouse to save its current settings."));
+        return;
+    }
+    AdwAlertDialog *dlg = ADW_ALERT_DIALOG(adw_alert_dialog_new(_("Save current settings"),
+        _("Captures DPI, report rate, sensor and power settings, lighting, buttons and their macros.")));
+    g_save_entry = gtk_entry_new();
+    gtk_entry_set_placeholder_text(GTK_ENTRY(g_save_entry), _("Profile name, e.g. FPS, Work, Travel"));
+    gtk_entry_set_activates_default(GTK_ENTRY(g_save_entry), TRUE);
+    adw_alert_dialog_set_extra_child(dlg, g_save_entry);
+    adw_alert_dialog_add_response(dlg, "cancel", _("Cancel"));
+    adw_alert_dialog_add_response(dlg, "save", _("Save"));
+    adw_alert_dialog_set_response_appearance(dlg, "save", ADW_RESPONSE_SUGGESTED);
+    adw_alert_dialog_set_default_response(dlg, "save");
+    adw_alert_dialog_set_close_response(dlg, "cancel");
+    g_signal_connect(dlg, "response", G_CALLBACK(on_save_response), app);
+    adw_dialog_present(ADW_DIALOG(dlg), GTK_WIDGET(app->win));
 }
 
 GtkWidget *build_profiles_page(App *app)
 {
-    GtkWidget *outer = gtk_box_new(GTK_ORIENTATION_VERTICAL, 16);
-    gtk_widget_set_margin_top(outer, 16);
-    gtk_widget_set_margin_bottom(outer, 16);
-    gtk_widget_set_margin_start(outer, 16);
-    gtk_widget_set_margin_end(outer, 16);
+    g_app = app;
+    GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    GtkWidget *imp = ui_button_new(_("Import"), "document-open-symbolic", "secondary");
+    g_signal_connect(imp, "clicked", G_CALLBACK(on_import_clicked), app);
+    GtkWidget *save = ui_button_new(_("Save current settings"), "document-save-symbolic", "primary");
+    g_signal_connect(save, "clicked", G_CALLBACK(on_save_clicked), app);
+    gtk_box_append(GTK_BOX(actions), imp);
+    gtk_box_append(GTK_BOX(actions), save);
 
-    GtkWidget *header = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
-    GtkWidget *header_text = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
-    GtkWidget *title = gtk_label_new(_("Profiles"));
-    gtk_widget_add_css_class(title, "title-2");
-    gtk_widget_set_halign(title, GTK_ALIGN_START);
-    GtkWidget *subtitle = gtk_label_new(_("Saved on this computer."));
-    gtk_widget_add_css_class(subtitle, "dim-label");
-    gtk_widget_set_halign(subtitle, GTK_ALIGN_START);
-    gtk_box_append(GTK_BOX(header_text), title);
-    gtk_box_append(GTK_BOX(header_text), subtitle);
-    gtk_widget_set_hexpand(header_text, TRUE);
-    gtk_box_append(GTK_BOX(header), header_text);
+    GtkWidget *body;
+    GtkWidget *page = ui_page_new(_("Profiles"),
+        _("Switch the whole mouse between setups \xE2\x80\x94 for a game, for work, for travel."), actions, &body);
 
-    GtkWidget *save_btn = gtk_button_new_with_label(_("Save current as profile"));
-    gtk_widget_add_css_class(save_btn, "suggested-action");
-    gtk_widget_add_css_class(save_btn, "pill");
-    gtk_widget_set_valign(save_btn, GTK_ALIGN_START);
-    g_signal_connect(save_btn, "clicked", G_CALLBACK(on_save_profile_clicked), app);
-    gtk_box_append(GTK_BOX(header), save_btn);
-    gtk_box_append(GTK_BOX(outer), header);
+    g_empty = ui_empty_new("document-save-symbolic", _("No profiles yet"),
+        _("Set the mouse up the way you like, then press \xE2\x80\x9CSave current settings\xE2\x80\x9D."));
+    gtk_box_append(GTK_BOX(body), g_empty);
 
-    /* A plain horizontal box in a horizontally-scrolling window -- fine
-     * for a handful of profiles; wrapping onto multiple rows (GtkFlowBox)
-     * would be nicer for many, but isn't worth the extra layout code for
-     * what's expected to be a short list. */
-    g_profiles_list = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
-    gtk_widget_set_hexpand(g_profiles_list, TRUE);
-    GtkWidget *scroller = gtk_scrolled_window_new();
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroller), GTK_POLICY_AUTOMATIC, GTK_POLICY_NEVER);
-    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroller), g_profiles_list);
-    gtk_box_append(GTK_BOX(outer), scroller);
+    g_flow = gtk_flow_box_new();
+    gtk_flow_box_set_selection_mode(GTK_FLOW_BOX(g_flow), GTK_SELECTION_NONE);
+    gtk_flow_box_set_homogeneous(GTK_FLOW_BOX(g_flow), TRUE);
+    gtk_flow_box_set_row_spacing(GTK_FLOW_BOX(g_flow), 14);
+    gtk_flow_box_set_column_spacing(GTK_FLOW_BOX(g_flow), 14);
+    gtk_flow_box_set_max_children_per_line(GTK_FLOW_BOX(g_flow), 3);
+    gtk_box_append(GTK_BOX(body), g_flow);
 
-    populate_profiles(app);
-    return outer;
+    populate(app);
+    return page;
 }

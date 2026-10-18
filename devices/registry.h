@@ -19,4 +19,17 @@ const char *ajazz_lookup_name_by_devid(const char *dev_id);
  * (either an unrecognised dev_id, or a listed-but-untested model). */
 uint32_t ajazz_lookup_confirmed_caps(const char *dev_id);
 
+/* Picture to show for a model: "aj179", "aj139pro", "aj159" or "generic"
+ * (file gui/images/mouse_<name>.png). `name` is the model name from the
+ * device table. */
+const char *ajazz_lookup_image(const char *model_name);
+
+/* Bitmask of lighting modes (1 << AJAZZ_LIGHT_*) the model's firmware
+ * actually runs. The official driver's per-model device/mouse_*.xml has
+ * <light_N enable="0|1">; for every model whose file ships in the installer
+ * (AJ139 PRO, AJ159, AJ159 MC, AJ179) only off, breathing and steady are
+ * enabled -- flowing, neon and colour wave are accepted by the firmware but
+ * do nothing visible. Models we have no file for get the same safe set. */
+uint32_t ajazz_lookup_light_modes(const char *dev_id);
+
 #endif

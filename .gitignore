@@ -2,6 +2,8 @@
 ajazzyctl
 ajazzy-gui
 *.o
+tests/test_protocol
+protocol/udev_rule.h
 locale/*/LC_MESSAGES/*.mo
 dist/
 

@@ -40,8 +40,8 @@ Sent as `[queryId, 0x00, 0x00, 0x00, 0, 0, ...]`. The device replies with the sa
 | `0x13` | DPI value table, active stage included (see below) |
 | `0x14` | Per-DPI-stage indicator colour table. Reply is `opcode/3` raw RGB triples back to back, no header. A live reply decoded to exactly 6 colours — red, green, blue, cyan, yellow, magenta — one per DPI stage, matching the mouse's actual behaviour (LED colour follows the active stage). Matches the firmware's own debug strings `cmd get dpi color` / `set dpi color`. The SET side for this table has never been seen on the wire, but see the family `0x04` section below for a decompiled reconstruction. |
 | `0x15` | RGB lighting effect state — see "Report rate and lighting readback" below |
-| `0x16` | Unidentified |
-| `0x17` | Sensor/lift-off settings |
+| `0x16` | Sensor performance (pairs with SET family `0x06`) |
+| `0x17` | Power/buttons (pairs with SET family `0x07`) |
 | `0x20` | Battery status — see the battery section below |
 
 ### SET commands
@@ -51,12 +51,70 @@ Sent as `[queryId, 0x00, 0x00, 0x00, 0, 0, ...]`. The device replies with the sa
 | `0x02` | `0x01` | Report rate. `payload[0]` = polling interval in milliseconds (8/4/2/1 for 125/250/500/1000 Hz). Does not touch DPI stage. |
 | `0x03` | `0x25` | Full DPI table rewrite, active stage included (see below) — this is also how active DPI stage is switched, there's no separate "just switch stage" command |
 | `0x04` | `0x12` | Per-DPI-stage indicator LED colour, all 6 stages: 18 bytes = 6×`{R,G,B}` triples in stage order — see below |
-| `0x05` | `0x02` | All-zero payload — turns lighting off |
-| `0x05` | `0x05` | Constant light: `payload[0]=0x03` (constant), `payload[1] = (brightness << 4) \| 0x02` (brightness 0-4), `payload[2]=0xff` (constant) |
-| `0x05` | `0x18` | RGB rainbow effect: `payload[0]=0x02`, `payload[1] = (brightness << 4) \| speed` (both 0-4), `payload[2]=0x07` (7 colours follow), then 7×3 bytes of RGB (fixed palette: red/green/blue/cyan/yellow/magenta/white) |
-| `0x07` | `0x04` | Sensor: `payload[0]=0x06` (constant), `payload[1]`=lift-off level, `payload[2]`=turn light off when idle, `payload[3]=0x08` (constant) |
+| `0x05` | `0x02`/`0x03`/`0x05`/`0x18` | Lighting. `payload[0]` is the **mode** (0 off, 1 flow, 2 breathing, 3 steady, 4 neon, 5 wave), `payload[1] = (brightness << 4) \| speed`; steady adds RGB at `payload[2..4]`, breathing adds a count (7) and 7×RGB. See "Lighting modes" below — the earlier reading of these as constant bytes was wrong |
+| `0x06` | `0x05` | Sensor performance: `[lift-off 1\|2 mm, angle snapping, ripple control, motion sync]` |
+| `0x07` | `0x04` | Power/buttons: `[sleep (×10 s), wake on movement, light off when idle, button debounce ms]` — **not** lift-off; see below |
 | `0x08` | length | Macro content (see below) |
 | `0x09` | `0x0f` | Button/key mapping table (see below) |
+
+## Corrections from decompiling the official driver (1.0.1.4)
+
+The Windows driver's `AJAZZ Driver (X).exe` was decompiled headlessly with Ghidra (all ~5,500 functions dumped, call graph walked up from the one `WriteFile` wrapper that sends reports). That recovered the exact byte layout of every setter and showed that several early readings of captures were off. Each item below was then **confirmed on a real AJ179 V2 MAX by writing it and reading it back** (`ajazzyctl`, `make test` locks the bytes).
+
+Report buffers in the driver carry a leading report-id byte; everything here is in the 32-byte report layout used on the wire.
+
+### Lighting modes (family `0x05`)
+
+`payload = [mode, (brightness << 4) | speed, ...]`
+
+| mode | opcode | extra payload | official name |
+|---|---|---|---|
+| 0 | `0x02` | — | off (reads back with opcode `0x01`) |
+| 1 | `0x03` | — | Flowing light (流光) |
+| 2 | `0x18` | `[7, 7×RGB]` | Breathing (呼吸) — cycles through the colours with a breathing fade |
+| 3 | `0x05` | `[R, G, B]` | Constant / steady (常亮) |
+| 4 | `0x02` | — | Neon (霓虹) |
+| 5 | `0x02` | — | Colourful wave (七彩波浪) |
+
+So the old "rainbow" command is breathing with the default 7-colour palette, and "constant" has always carried a colour (`03 42 ff 00 00` is red) — the earlier `0xff` was the red channel, not a marker. Reading query `0x15` back returns the same layout (`payload[0]` = mode). Which modes a given model exposes is listed per device in the installer's `device/mouse_*.xml` (`<light_N enable=…>`): the AJ139 PRO, AJ159, AJ159 MC and AJ179 files all enable only breathing (2), steady (3) and off — flowing, neon and wave have `enable="0"`. The firmware stores modes 1/4/5 and reads them back, but on a real AJ179 V2 MAX they produce no visible effect, so Ajazzy hides them (`ajazz_lookup_light_modes()`).
+
+### Sensor and power
+
+- Family `0x07` opcode `0x04` (query `0x17`): `[sleep, move_wakeup, move_closelight, button_respondtime]`. Byte 1 is **wake on movement**, byte 2 **light off when idle**, byte 3 the **button debounce in ms** (factory 8) — not the constant `0x08` it was taken for. Byte 1 was previously called "lift-off", which is why that control seemed to do nothing physical: lift-off lives elsewhere.
+- Family `0x06` opcode `0x05` (query `0x16`): `[lift_off 1|2 mm, angle_snap, ripple_control, motion_sync]` (flag names from the driver's own checkboxes; the installer's string table calls them Angle Snap, Ripple Control and Motion Sync).
+
+### DPI table low nibble
+
+`payload[0] = (dpi_index << 4) | dpi_count` — the low nibble is the driver's "DPI count" setting, not a constant. A freshly reset V2 MAX reports 5 even though six stage values are stored. It round-trips (written 6, 3, 5 and read back each time); whether it really limits how many stages the DPI button cycles through needs a physical check.
+
+### Button table encodings
+
+Slot bytes `[marker, a, b]` (nine slots; slots 0-5 are the five buttons and the DPI button). From the driver's button-table writer:
+
+| bytes | function |
+|---|---|
+| `10 01/04/02/08/10 00` | left / middle / right / back / forward |
+| `10 00 f5` / `10 00 f6` | scroll left / right (unverified) |
+| `20 01 00` / `20 ff 00` | scroll up / down (unverified) |
+| `30 32 03` | double click (unverified); `30 interval count` is rapid-fire |
+| `40 01/02/03 00` | DPI cycle / up / down (only cycle is the factory default; up/down unverified) |
+| `60 00 00` | button disabled |
+| `70 mods key` | keyboard shortcut (HID usage); modifier-only is `70 mod 00` |
+| `80 lo hi` | consumer-control usage: play/pause `cd`, stop `b7`, prev `b6`, next `b5`, vol+ `e9`, vol− `ea`, mute `e2`, brightness `6f`/`70`, calculator `92 01`, my computer `94 01`, mail `8a 01`, browser home `23 02` |
+| `70 08 07` / `70 08 2b` | Win+D / Win+Tab |
+| `70 01 06` / `19` / `1b` | Ctrl+C / V / X |
+| `90 idx\|flags count` | macro, see below |
+
+### Macros
+
+- The content stream starts with the **button index** (`[key_index, step…]`), not a constant `0x03` — the early captures were all button 4 (index 3).
+- The button-table entry is `[0x90, key_index | flags, count]` with flags `0x10` repeat while held, `0x40` repeat until any click, `0x20` repeat `count` times; none = play once. The old constant `23 01` is "button 4, repeat 1 time". Verified by writing `90 24 01` and `90 14 00` to button 5 and reading them back.
+- Modifier keys are their own step kinds: `0x20` down / `0xa0` up, value = HID modifier bit. Two keys (`[` / `]` style GUI keys, VK `0x5b/0x5d`) take the same path.
+- A step with no recorded delay is written with 1 ms.
+
+### Queries on a sleeping or just-woken mouse
+
+The dongle answers the identity query (`0x10`) from its own cache even when the mouse is asleep; every other query then goes unanswered. Right after the mouse wakes it answers with the right family but opcode `0` and an all-zero payload, which looks like real data (0 DPI, 0 s sleep timer). `ajazz_query()` therefore retries empty replies a few times. The original driver also sends a one-byte "prepare" write (family `0x0d` before `0x12`, family `0x0e` before `0x15`) with a 100 ms wait; the retry makes that unnecessary on the V2 MAX but it is the likely reason for the "stale read after a SET" behaviour documented below.
 
 ## The DPI table
 
@@ -74,7 +132,7 @@ payload[25..26] unused, always zero
 
 Confirmed with a capture of switching active stage from 1 to 5: five family `0x03` writes with `payload[0]` = `0x05, 0x15, 0x25, 0x35, 0x45` in order, high nibble tracking the stage. None of those writes touched family `0x02`.
 
-Round-tripped on real hardware: write a value, read it back, matches — across DPI, report rate, and lift-off. **Lift-off distance specifically was round-tripped with this project's own driver, not observed being set from the official Windows driver's UI** -- decompiling that driver shows `DeviceMainDlg::SetMouseSensorLiftData` (the function that writes `liftoff_height` on family `0x07`/opcode `0x04`) exists, but no `OnLift...`/`GetLift...` UI message handler does, for the AJ179 V2 MAX. The mouse genuinely accepts and stores the byte -- it's just not a control the official app exposes for this model, so treat it as an extra capability this project surfaces rather than a like-for-like port of an official feature.
+Round-tripped on real hardware: write a value, read it back, matches — across DPI, report rate, and lift-off. **Superseded:** the next paragraphs describe how the lift-off/wake-on-motion mix-up looked at the time. The corrected layout is in "Corrections from decompiling the official driver" above. The mouse genuinely accepts and stores the byte -- it's just not a control the official app exposes for this model, so treat it as an extra capability this project surfaces rather than a like-for-like port of an official feature.
 
 Re-validated against real hardware in this session via `ajazzyctl`: `rate set 500` → `rate get` reads back `500`, `rate set 1000` → `1000`; `liftoff set 1` and `liftoff set 2` are both correctly reflected by a subsequent `power get`. Report rate and lift-off both round-trip cleanly at the protocol level -- no bug in either.
 
@@ -210,8 +268,7 @@ raw < 25              -> 1/4 bar (drawn in red -- there's no distinct "empty" ti
 
 ## What's still unknown
 
-- **RGB effect selection between "breathing" and "rainbow".** Both produce the identical `0x05`/`0x18` command shape, only brightness/speed differ. Either there's a real "effect id" byte not yet isolated, or the two effect names don't correspond to distinct wire commands.
-- **The "reacts to movement" lighting toggle.** A capture of this reused the same family `0x07`/opcode `0x04` sensor command as lift-off distance, landing on the same byte (`payload[1]`) lift-off level uses. Not implemented since writing it might corrupt the lift-off setting — needs a capture that isolates this control while lift-off is held constant.
-- **The per-DPI-stage indicator colour SET command.** Query `0x14`'s reply format is understood, but the write side hasn't been captured.
-- **Query `0x16`.** Not pinned down. Possibly "cmd get Sensor advanced par" going by the firmware's debug-string order — unchecked.
-- **Sensor command's `payload[2]`.** `protocol/hid.c` accepts a byte for this slot; nothing else is known to go there.
+- **Flowing / neon / colour wave.** Exact wire format, round-trips, but no visible effect on an AJ179 V2 MAX; presumably meant for other (RGB-strip) models.
+- **Whether the DPI count nibble limits the DPI button's cycle**, and the buttons marked *beta* in the GUI (scroll left/right/up/down, double click, DPI up/down, system shortcuts): encodings come from the driver, not from pressing the buttons.
+- **The firmware's own macro limit.** The wire format allows 101 steps (15 chunks); a smaller on-device limit would show as truncated playback.
+- **Models other than the AJ179 V2 MAX.** The protocol is shared; each model's `device/mouse_*.xml` in the installer lists which lighting modes and features are enabled.

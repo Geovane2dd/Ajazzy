@@ -24,6 +24,8 @@ install -Dm755 ajazzyctl %{buildroot}%{_bindir}/ajazzyctl
 install -Dm755 ajazzy-gui %{buildroot}%{_bindir}/ajazzy-gui
 install -Dm644 gui/io.github.ajazzy.Gui.desktop %{buildroot}%{_datadir}/applications/io.github.ajazzy.Gui.desktop
 install -Dm644 gui/icons/io.github.ajazzy.Gui.svg %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/io.github.ajazzy.Gui.svg
+install -d %{buildroot}%{_datadir}/ajazzy/images
+install -m644 gui/images/*.png %{buildroot}%{_datadir}/ajazzy/images/
 install -Dm644 locale/pt_BR/LC_MESSAGES/ajazzy.mo %{buildroot}%{_datadir}/locale/pt_BR/LC_MESSAGES/ajazzy.mo
 install -Dm644 udev/71-ajazzy.rules %{buildroot}%{_prefix}/lib/udev/rules.d/71-ajazzy.rules
 
@@ -32,10 +34,12 @@ install -Dm644 udev/71-ajazzy.rules %{buildroot}%{_prefix}/lib/udev/rules.d/71-a
 %{_bindir}/ajazzy-gui
 %{_datadir}/applications/io.github.ajazzy.Gui.desktop
 %{_datadir}/icons/hicolor/scalable/apps/io.github.ajazzy.Gui.svg
+%{_datadir}/ajazzy/images/
 %{_datadir}/locale/pt_BR/LC_MESSAGES/ajazzy.mo
 %{_prefix}/lib/udev/rules.d/71-ajazzy.rules
 
 %post
 udevadm control --reload-rules || :
+udevadm trigger --subsystem-match=hidraw --action=change || :
 
 %changelog
