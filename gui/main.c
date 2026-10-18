@@ -1,3 +1,4 @@
+#define _DEFAULT_SOURCE
 /*
  * Ajazzy -- app shell: window, sidebar navigation, connection manager.
  *
@@ -242,16 +243,17 @@ static void conn_work(App *app, gpointer data)
     r->charging = r->now_connected && app->dev.charging;
 
 battery:
-    if (r->now_connected && r->read_battery) {
-        ajazz_report_t reply;
-        if (ajazz_query_mt(app, AJAZZ_QUERY_DEVICE_INFO, &reply, 1000) == 0)
-            r->battery = reply.payload[AJAZZ_BATTERY_PAYLOAD_OFFSET];
-    }
-    /* The dongle answers the identity query even while the mouse sleeps, but
-     * every setting query goes unanswered, so probe one of those. */
+    /* The dongle answers the identity query even while the mouse sleeps, but every
+     * setting query then goes unanswered -- so probe with one of those first, and
+     * only read the battery (a second over-the-air round trip) if the mouse answers. */
     if (r->now_connected && r->read_battery) {
         ajazz_report_t probe;
-        r->asleep = ajazz_query_mt(app, AJAZZ_QUERY_REPORT_RATE, &probe, 600) != 0;
+        r->asleep = ajazz_query_mt(app, AJAZZ_QUERY_REPORT_RATE, &probe, 500) != 0;
+        if (!r->asleep) {
+            ajazz_report_t reply;
+            if (ajazz_query_mt(app, AJAZZ_QUERY_DEVICE_INFO, &reply, 1000) == 0)
+                r->battery = reply.payload[AJAZZ_BATTERY_PAYLOAD_OFFSET];
+        }
     }
 }
 
@@ -343,7 +345,11 @@ static void connection_poll_ex(App *app, gboolean force_battery)
     ConnResult *r = g_new0(ConnResult, 1);
     r->was_connected = app->connected;
     int period = gtk_widget_get_visible(GTK_WIDGET(app->win)) ? BATTERY_POLL_TICKS_VISIBLE : BATTERY_POLL_TICKS_HIDDEN;
-    r->read_battery = force_battery || !app->connected || app->battery_percent < 0 || (app->tick % period == 0);
+    /* While the mouse is asleep nothing is rationed: a probe to a sleeping mouse
+     * costs it nothing (it isn't listening) and the banner must go away the moment
+     * it wakes, not up to 30 s later. */
+    r->read_battery = force_battery || app->asleep || !app->connected || app->battery_percent < 0
+        || (app->tick % period == 0);
     app_async(app, conn_work, conn_done, r, g_free);
 }
 
@@ -791,10 +797,48 @@ static void on_activate(GtkApplication *gtk_app, gpointer user_data)
     }
 }
 
+/* LOCALEDIR is the path baked in at compile time, which is the build tree --
+ * useless for a package built on a CI runner and installed elsewhere. So look
+ * for the translation catalogue where an installed copy would put it: next to
+ * the binary (tarball), under its ../share (prefix install), or in the usual
+ * system locations, and only then fall back to the compiled-in path. */
+static const char *pick_localedir(void)
+{
+    static char found[4096];
+    GPtrArray *c = g_ptr_array_new_with_free_func(g_free);
+
+    char exe[4096];
+    ssize_t n = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+    if (n > 0) {
+        exe[n] = '\0';
+        char *bin = g_path_get_dirname(exe);
+        g_ptr_array_add(c, g_build_filename(bin, "locale", NULL));
+        g_ptr_array_add(c, g_build_filename(bin, "..", "share", "locale", NULL));
+        g_free(bin);
+    }
+    g_ptr_array_add(c, g_strdup("/usr/local/share/locale"));
+    g_ptr_array_add(c, g_strdup("/usr/share/locale"));
+    g_ptr_array_add(c, g_strdup(LOCALEDIR));
+
+    const char *result = LOCALEDIR;
+    for (guint i = 0; i < c->len; i++) {
+        char *probe = g_build_filename(g_ptr_array_index(c, i), "pt_BR", "LC_MESSAGES", "ajazzy.mo", NULL);
+        gboolean ok = g_file_test(probe, G_FILE_TEST_EXISTS);
+        g_free(probe);
+        if (ok) {
+            g_strlcpy(found, g_ptr_array_index(c, i), sizeof(found));
+            result = found;
+            break;
+        }
+    }
+    g_ptr_array_free(c, TRUE);
+    return result;
+}
+
 int main(int argc, char **argv)
 {
     setlocale(LC_ALL, "");
-    bindtextdomain("ajazzy", LOCALEDIR);
+    bindtextdomain("ajazzy", pick_localedir());
     bind_textdomain_codeset("ajazzy", "UTF-8");
     textdomain("ajazzy");
 
@@ -804,7 +848,8 @@ int main(int argc, char **argv)
     app.battery_percent = -1;
     g_mutex_init(&app.hid_lock);
 
-    AdwApplication *gtk_app = adw_application_new(AJAZZ_APP_ID, G_APPLICATION_DEFAULT_FLAGS);
+    AdwApplication *gtk_app = adw_application_new(AJAZZ_APP_ID,
+        g_getenv("AJAZZY_SNAPSHOT_DIR") ? G_APPLICATION_NON_UNIQUE : G_APPLICATION_DEFAULT_FLAGS); /* dev captures must not hand off to a running copy */
     g_signal_connect(gtk_app, "activate", G_CALLBACK(on_activate), &app);
 
     int status = g_application_run(G_APPLICATION(gtk_app), argc, argv);
