@@ -622,8 +622,8 @@ static gboolean preset_load_file(const char *file, char *name, size_t nlen, AppL
     json_get_string(t, "name", name, nlen);
     l->effect = json_get_int(t, "effect", LFX_STEADY);
     if (l->effect < 0 || l->effect >= LFX_COUNT) l->effect = LFX_STEADY;
-    l->brightness = json_get_int(t, "brightness", 4);
-    l->speed = json_get_int(t, "speed", 2);
+    l->brightness = CLAMP(json_get_int(t, "brightness", 4), 0, 4);
+    l->speed = CLAMP(json_get_int(t, "speed", 2), 0, 4);
     l->soft_transition = json_get_int(t, "transition", 0);
     l->palette_n = json_get_int(t, "palette_n", LIGHT_PALETTE_MAX);
     if (l->palette_n < 1 || l->palette_n > LIGHT_PALETTE_MAX) l->palette_n = LIGHT_PALETTE_MAX;
@@ -660,10 +660,9 @@ static GtkWidget *preset_chip(App *app, const char *label, const AppLight *l, co
     gtk_widget_add_css_class(box, "linked");
     GtkWidget *b = gtk_button_new();
     GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-    GtkWidget *sw = gtk_drawing_area_new();
-    gtk_widget_set_size_request(sw, 14, 14);
-    gtk_widget_set_valign(sw, GTK_ALIGN_CENTER);
-    gtk_widget_set_halign(sw, GTK_ALIGN_CENTER);
+    /* swatch: the colour the preset leads with */
+    const uint8_t *lead = (l->effect == LFX_STEADY || l->effect == LFX_OFF) ? l->color : l->palette[0];
+    GtkWidget *sw = ui_color_dot_new(lead, 14);
     AppLight *copy = g_new(AppLight, 1);
     *copy = *l;
     g_object_set_data_full(G_OBJECT(b), "light", copy, g_free);
@@ -674,19 +673,6 @@ static GtkWidget *preset_chip(App *app, const char *label, const AppLight *l, co
     gtk_widget_add_css_class(b, "aj-btn-secondary");
     g_signal_connect(b, "clicked", G_CALLBACK(on_preset_clicked), app);
     gtk_box_append(GTK_BOX(box), b);
-
-    /* swatch: colour the preset leads with */
-    const uint8_t *c = (l->effect == LFX_STEADY || l->effect == LFX_OFF) ? l->color : l->palette[0];
-    char css[96];
-    char name[32];
-    snprintf(name, sizeof(name), "pre%p", (void *)sw);
-    gtk_widget_set_name(sw, name);
-    snprintf(css, sizeof(css), "#%s { background: #%02x%02x%02x; border-radius: 99px; }", name, c[0], c[1], c[2]);
-    GtkCssProvider *prov = gtk_css_provider_new();
-    gtk_css_provider_load_from_string(prov, css);
-    gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(prov),
-        GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-    g_object_unref(prov);
 
     if (file) {
         GtkWidget *del = gtk_button_new_from_icon_name("window-close-symbolic");

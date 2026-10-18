@@ -130,14 +130,20 @@ static gboolean profile_from_json(const char *t, Profile *p)
     for (int i = 0; i < AJAZZ_DPI_STAGES; i++)
         for (int c = 0; c < 3; c++) p->dpi_color[i][c] = (uint8_t)tmp[i * 3 + c];
     p->dpi_selected = json_get_int(t, "dpi_selected", 0);
+    if (p->dpi_selected < 0 || p->dpi_selected >= AJAZZ_DPI_STAGES)
+        p->dpi_selected = 0;
     p->dpi_count = json_get_int(t, "dpi_count", 5);
+    if (p->dpi_count < 1 || p->dpi_count > AJAZZ_DPI_STAGES)
+        p->dpi_count = 5;
     p->rate_hz = json_get_int(t, "rate_hz", 1000);
+    if (p->rate_hz < 125 || p->rate_hz > 1000)
+        p->rate_hz = 1000;
 
     p->light.effect = json_get_int(t, "l_effect", LFX_STEADY);
     if (p->light.effect < 0 || p->light.effect >= LFX_COUNT) p->light.effect = LFX_STEADY;
-    p->light.brightness = json_get_int(t, "l_brightness", 4);
-    p->light.speed = json_get_int(t, "l_speed", 2);
-    p->light.soft_transition = json_get_int(t, "l_transition", 0);
+    p->light.brightness = CLAMP(json_get_int(t, "l_brightness", 4), 0, 4);
+    p->light.speed = CLAMP(json_get_int(t, "l_speed", 2), 0, 4);
+    p->light.soft_transition = json_get_int(t, "l_transition", 0) ? 1 : 0;
     p->light.palette_n = json_get_int(t, "l_palette_n", LIGHT_PALETTE_MAX);
     if (p->light.palette_n < 1 || p->light.palette_n > LIGHT_PALETTE_MAX) p->light.palette_n = LIGHT_PALETTE_MAX;
     memset(tmp, 0, sizeof(tmp));
@@ -148,14 +154,14 @@ static gboolean profile_from_json(const char *t, Profile *p)
     for (int i = 0; i < LIGHT_PALETTE_MAX; i++)
         for (int c = 0; c < 3; c++) p->light.palette[i][c] = (uint8_t)tmp[i * 3 + c];
 
-    p->sensor.liftoff_mm = json_get_int(t, "s_liftoff", 1);
+    p->sensor.liftoff_mm = json_get_int(t, "s_liftoff", 1) >= 2 ? 2 : 1;
     p->sensor.angle_snap = json_get_int(t, "s_angle", 0);
     p->sensor.ripple = json_get_int(t, "s_ripple", 0);
     p->sensor.motion_sync = json_get_int(t, "s_msync", 1);
-    p->sensor.sleep_seconds = json_get_int(t, "s_sleep", 300);
+    p->sensor.sleep_seconds = CLAMP(json_get_int(t, "s_sleep", 300), 0, 2550);
     p->sensor.wake_on_move = json_get_int(t, "s_wake", 1);
     p->sensor.idle_light_off = json_get_int(t, "s_idle", 0);
-    p->sensor.debounce_ms = json_get_int(t, "s_debounce", 8);
+    p->sensor.debounce_ms = CLAMP(json_get_int(t, "s_debounce", 8), 0, 255);
     p->sensor.valid = json_get_int(t, "s_valid", 0) != 0;
 
     memset(tmp, 0, sizeof(tmp));
@@ -168,8 +174,8 @@ static gboolean profile_from_json(const char *t, Profile *p)
         AppMacro *m = &p->macro[s];
         snprintf(k, sizeof(k), "m%d_name", s);
         if (!json_get_string(t, k, m->name, sizeof(m->name)) || !m->name[0]) continue;
-        snprintf(k, sizeof(k), "m%d_loop", s); m->loop_mode = json_get_int(t, k, 0);
-        snprintf(k, sizeof(k), "m%d_loops", s); m->loop_count = json_get_int(t, k, 1);
+        snprintf(k, sizeof(k), "m%d_loop", s); m->loop_mode = CLAMP(json_get_int(t, k, 0), 0, 3);
+        snprintf(k, sizeof(k), "m%d_loops", s); m->loop_count = CLAMP(json_get_int(t, k, 1), 1, 255);
         snprintf(k, sizeof(k), "m%d_n", s);
         int n = json_get_int(t, k, 0);
         if (n < 0) n = 0;
@@ -178,10 +184,14 @@ static gboolean profile_from_json(const char *t, Profile *p)
         snprintf(k, sizeof(k), "m%d_kinds", s); json_get_int_array(t, k, kinds, n);
         snprintf(k, sizeof(k), "m%d_delays", s); json_get_int_array(t, k, delays, n);
         snprintf(k, sizeof(k), "m%d_values", s); json_get_int_array(t, k, vals, n);
-        for (int i = 0; i < n; i++)
-            m->steps[i] = (ajazz_macro_step_t){(uint8_t)kinds[i], (uint16_t)delays[i], (uint8_t)vals[i]};
-        m->n_steps = n;
-        p->has_macro[s] = n > 0;
+        int kept = 0;
+        for (int i = 0; i < n; i++) {
+            if (!ajazz_macro_kind_valid((uint8_t)kinds[i]) || delays[i] < 0 || delays[i] > 65535)
+                continue;
+            m->steps[kept++] = (ajazz_macro_step_t){(uint8_t)kinds[i], (uint16_t)delays[i], (uint8_t)vals[i]};
+        }
+        m->n_steps = kept;
+        p->has_macro[s] = kept > 0;
     }
     return TRUE;
 }
@@ -497,18 +507,7 @@ static void populate(App *app)
         GtkWidget *dots = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
         gtk_widget_set_margin_top(dots, 6);
         for (int i = 0; i < AJAZZ_DPI_STAGES; i++) {
-            GtkWidget *dot = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-            gtk_widget_add_css_class(dot, "aj-stage-dot");
-            char nm[32], css[96];
-            snprintf(nm, sizeof(nm), "pf%p-%d", (void *)dot, i);
-            gtk_widget_set_name(dot, nm);
-            snprintf(css, sizeof(css), "#%s { background: #%02x%02x%02x; }", nm,
-                p.dpi_color[i][0], p.dpi_color[i][1], p.dpi_color[i][2]);
-            GtkCssProvider *prov = gtk_css_provider_new();
-            gtk_css_provider_load_from_string(prov, css);
-            gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(prov),
-                GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-            g_object_unref(prov);
+            GtkWidget *dot = ui_color_dot_new(p.dpi_color[i], 12);
             gtk_box_append(GTK_BOX(dots), dot);
         }
         gtk_box_append(GTK_BOX(info), dots);

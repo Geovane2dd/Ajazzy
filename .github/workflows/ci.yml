@@ -10,6 +10,10 @@ on:
   push:
     branches-ignore: [main]
 
+# the build only reads the repository; nothing here needs to write to it
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest

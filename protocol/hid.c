@@ -493,3 +493,15 @@ const char *ajazz_battery_label(uint8_t raw)
     if (raw >= 25) return "Medium (2/4 bars)";
     return "Low (1/4 bars)";
 }
+
+int ajazz_macro_kind_valid(uint8_t kind)
+{
+    switch (kind) {
+        case AJAZZ_MACRO_MOUSE_DOWN: case AJAZZ_MACRO_MOUSE_UP:
+        case AJAZZ_MACRO_KEY_DOWN: case AJAZZ_MACRO_KEY_UP:
+        case AJAZZ_MACRO_MOD_DOWN: case AJAZZ_MACRO_MOD_UP:
+            return 1;
+        default:
+            return 0;
+    }
+}

@@ -114,12 +114,16 @@ static gboolean macro_from_json(const char *t, AppMacro *m)
     json_get_int_array(t, "kinds", kinds, n);
     json_get_int_array(t, "delays", delays, n);
     json_get_int_array(t, "values", values, n);
+    int kept = 0;
     for (int i = 0; i < n; i++) {
-        m->steps[i].kind = (uint8_t)kinds[i];
-        m->steps[i].delay_ms = (uint16_t)delays[i];
-        m->steps[i].value = (uint8_t)values[i];
+        if (!ajazz_macro_kind_valid((uint8_t)kinds[i]) || delays[i] < 0 || delays[i] > 65535)
+            continue; /* a hand-edited or damaged file must not send arbitrary bytes to the mouse */
+        m->steps[kept].kind = (uint8_t)kinds[i];
+        m->steps[kept].delay_ms = (uint16_t)delays[i];
+        m->steps[kept].value = (uint8_t)values[i];
+        kept++;
     }
-    m->n_steps = n;
+    m->n_steps = kept;
     return TRUE;
 }
 

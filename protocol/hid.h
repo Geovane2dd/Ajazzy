@@ -419,6 +419,9 @@ typedef enum {
     AJAZZ_MACRO_MOD_UP     = 0xa0,
 } ajazz_macro_step_kind_t;
 
+/* TRUE for the six step kinds the mouse understands. */
+int ajazz_macro_kind_valid(uint8_t kind);
+
 typedef struct {
     uint8_t kind;       /* an ajazz_macro_step_kind_t value */
     uint16_t delay_ms;  /* pause after this step, in milliseconds. 16-bit

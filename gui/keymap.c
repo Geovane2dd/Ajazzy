@@ -91,18 +91,25 @@ void keymap_key_name(uint8_t key, char *out, size_t n)
 
 void keymap_name(uint8_t mods, uint8_t key, char *out, size_t n)
 {
-    char buf[96] = "";
-    size_t len = 0;
+    /* GString grows as needed, so nothing here depends on snprintf's return value */
+    GString *s = g_string_new(NULL);
     const struct { uint8_t mask; const char *name; } m[] = {
         {0x11, "Ctrl"}, {0x22, "Shift"}, {0x44, "Alt"}, {0x88, "Super"},
     };
-    for (size_t i = 0; i < 4; i++)
-        if (mods & m[i].mask)
-            len += (size_t)snprintf(buf + len, sizeof(buf) - len, "%s%s", len ? " + " : "", m[i].name);
+    for (size_t i = 0; i < 4; i++) {
+        if (!(mods & m[i].mask))
+            continue;
+        if (s->len)
+            g_string_append(s, " + ");
+        g_string_append(s, m[i].name);
+    }
     if (key) {
         char k[24];
         keymap_key_name(key, k, sizeof(k));
-        snprintf(buf + len, sizeof(buf) - len, "%s%s", len ? " + " : "", k);
+        if (s->len)
+            g_string_append(s, " + ");
+        g_string_append(s, k);
     }
-    snprintf(out, n, "%s", buf);
+    g_strlcpy(out, s->str, n);
+    g_string_free(s, TRUE);
 }

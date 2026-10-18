@@ -194,7 +194,7 @@ int ajazz_open(ajazz_dev_t *dev)
 
                 const char *precise = ajazz_lookup_name_by_devid(dev->dev_id);
                 if (precise)
-                    strncpy(dev->name, precise, sizeof(dev->name) - 1);
+                    snprintf(dev->name, sizeof(dev->name), "%s", precise);
 
                 dev->confirmed = ajazz_lookup_confirmed_caps(dev->dev_id);
             }

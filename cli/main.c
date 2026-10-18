@@ -82,6 +82,20 @@ static int open_device(ajazz_dev_t *dev, uint32_t cap, const char *feature_name)
     return 0;
 }
 
+/* Strict integer argument: the whole string must be a number inside [lo, hi].
+ * atoi() turned "abc" into 0 and let 300 wrap around inside a uint8_t. */
+static int arg_int(const char *s, long lo, long hi, const char *what)
+{
+    char *end = NULL;
+    errno = 0;
+    long v = strtol(s, &end, 10);
+    if (errno || end == s || *end != '\0' || v < lo || v > hi) {
+        fprintf(stderr, "%s must be a whole number between %ld and %ld (got \"%s\").\n", what, lo, hi, s);
+        exit(1);
+    }
+    return (int)v;
+}
+
 static void hexdump(const uint8_t *b, size_t len)
 {
     for (size_t i = 0; i < len; i++)
@@ -539,14 +553,14 @@ static int cmd_rgb_set(int argc, char **argv)
         uint8_t rgb[3] = {0xff, 0x00, 0x00};
         int bri = 4;
         if (argc >= 2 && parse_rgb(argv[1], rgb) != 0) { fprintf(stderr, "Colour must be RRGGBB.\n"); return 1; }
-        if (argc >= 3) bri = atoi(argv[2]);
+        if (argc >= 3) bri = arg_int(argv[2], 0, 4, "Brightness");
         if (!bs_ok(bri, 0)) return 1;
         ajazz_build_set_light_steady(&req, (uint8_t)bri, 0, rgb);
         return rgb_send(&req, "Steady colour set.");
     }
     if (strcmp(mode, "breathing") == 0 || strcmp(mode, "rainbow") == 0) {
-        int bri = argc >= 2 ? atoi(argv[1]) : 4;
-        int spd = argc >= 3 ? atoi(argv[2]) : 2;
+        int bri = argc >= 2 ? arg_int(argv[1], 0, 4, "Brightness") : 4;
+        int spd = argc >= 3 ? arg_int(argv[2], 0, 4, "Speed") : 2;
         if (!bs_ok(bri, spd)) return 1;
         uint8_t pal[AJAZZ_LIGHT_PALETTE][3];
         memcpy(pal, AJAZZ_LIGHT_DEFAULT_PALETTE, sizeof(pal));
@@ -567,8 +581,8 @@ static int cmd_rgb_set(int argc, char **argv)
     else if (strcmp(mode, "neon") == 0) m = AJAZZ_LIGHT_NEON;
     else if (strcmp(mode, "wave") == 0) m = AJAZZ_LIGHT_WAVE;
     else { fprintf(stderr, "Unknown lighting mode '%s'.\n", mode); return 1; }
-    int bri = argc >= 2 ? atoi(argv[1]) : 4;
-    int spd = argc >= 3 ? atoi(argv[2]) : 2;
+    int bri = argc >= 2 ? arg_int(argv[1], 0, 4, "Brightness") : 4;
+    int spd = argc >= 3 ? arg_int(argv[2], 0, 4, "Speed") : 2;
     if (!bs_ok(bri, spd)) return 1;
     ajazz_build_set_light_simple(&req, m, (uint8_t)bri, (uint8_t)spd);
     return rgb_send(&req, "Lighting effect set.");
@@ -1066,45 +1080,45 @@ int main(int argc, char **argv)
         if (strcmp(argv[2], "list") == 0)
             return cmd_dpi_list();
         if (strcmp(argv[2], "set") == 0 && argc == 5)
-            return cmd_dpi_set(atoi(argv[3]), atoi(argv[4]));
+            return cmd_dpi_set(arg_int(argv[3], 1, AJAZZ_DPI_STAGES, "Stage"), arg_int(argv[4], 100, 26000, "DPI"));
         if (strcmp(argv[2], "active") == 0 && argc == 4)
-            return cmd_dpi_active(atoi(argv[3]));
+            return cmd_dpi_active(arg_int(argv[3], 1, AJAZZ_DPI_STAGES, "Stage"));
         if (strcmp(argv[2], "reset") == 0)
             return cmd_dpi_reset();
     } else if (strcmp(argv[1], "dpicolor") == 0 && argc >= 3) {
         if (strcmp(argv[2], "list") == 0)
             return cmd_dpicolor_list();
         if (strcmp(argv[2], "set") == 0 && argc == 5)
-            return cmd_dpicolor_set(atoi(argv[3]), argv[4]);
+            return cmd_dpicolor_set(arg_int(argv[3], 1, AJAZZ_DPI_STAGES, "Stage"), argv[4]);
         if (strcmp(argv[2], "reset") == 0)
             return cmd_dpicolor_reset();
     } else if (strcmp(argv[1], "rate") == 0 && argc >= 3) {
         if (strcmp(argv[2], "get") == 0)
             return cmd_rate_get();
         if (strcmp(argv[2], "set") == 0 && argc == 4)
-            return cmd_rate_set(atoi(argv[3]));
+            return cmd_rate_set(arg_int(argv[3], 1, 100000, "Rate"));
     } else if (strcmp(argv[1], "sensor") == 0 && argc >= 3) {
         if (strcmp(argv[2], "get") == 0)
             return cmd_sensor_get();
         if (argc == 4 && strcmp(argv[2], "liftoff") == 0)
-            return sensor_modify("Lift-off distance (mm)", edit_liftoff, atoi(argv[3]));
+            return sensor_modify("Lift-off distance (mm)", edit_liftoff, arg_int(argv[3], 1, 2, "Lift-off (mm)"));
         if (argc == 4 && strcmp(argv[2], "anglesnap") == 0)
-            return sensor_modify("Angle snapping", edit_angle, atoi(argv[3]));
+            return sensor_modify("Angle snapping", edit_angle, arg_int(argv[3], 0, 1, "Value"));
         if (argc == 4 && strcmp(argv[2], "ripple") == 0)
-            return sensor_modify("Ripple control", edit_ripple, atoi(argv[3]));
+            return sensor_modify("Ripple control", edit_ripple, arg_int(argv[3], 0, 1, "Value"));
         if (argc == 4 && strcmp(argv[2], "motionsync") == 0)
-            return sensor_modify("Motion sync", edit_msync, atoi(argv[3]));
+            return sensor_modify("Motion sync", edit_msync, arg_int(argv[3], 0, 1, "Value"));
     } else if (strcmp(argv[1], "power") == 0 && argc >= 3) {
         if (strcmp(argv[2], "get") == 0)
             return cmd_power_get();
         if (argc == 4 && strcmp(argv[2], "sleep") == 0)
-            return power_modify("Auto-sleep (s)", atoi(argv[3]), ap_sleep);
+            return power_modify("Auto-sleep (s)", arg_int(argv[3], 0, 2550, "Seconds"), ap_sleep);
         if (argc == 4 && strcmp(argv[2], "wake") == 0)
-            return power_modify("Wake on movement", atoi(argv[3]), ap_wake);
+            return power_modify("Wake on movement", arg_int(argv[3], 0, 1, "Value"), ap_wake);
         if (argc == 4 && strcmp(argv[2], "light-idle-off") == 0)
-            return power_modify("Light off when idle", atoi(argv[3]), ap_idle);
+            return power_modify("Light off when idle", arg_int(argv[3], 0, 1, "Value"), ap_idle);
         if (argc == 4 && strcmp(argv[2], "debounce") == 0)
-            return power_modify("Button debounce (ms)", atoi(argv[3]), ap_deb);
+            return power_modify("Button debounce (ms)", arg_int(argv[3], 0, 255, "Milliseconds"), ap_deb);
     } else if (strcmp(argv[1], "rgb") == 0 && argc >= 3) {
         if (strcmp(argv[2], "off") == 0)
             return cmd_rgb_off();
@@ -1115,20 +1129,20 @@ int main(int argc, char **argv)
         if (strcmp(argv[2], "reset") == 0 && argc == 3)
             return cmd_keys_reset();
         if (strcmp(argv[2], "reset-slot") == 0 && argc == 4)
-            return cmd_keys_reset_slot(atoi(argv[3]));
+            return cmd_keys_reset_slot(arg_int(argv[3], 1, AJAZZ_KEY_SLOTS, "Slot"));
         if (strcmp(argv[2], "set") == 0 && argc == 5)
-            return cmd_keys_set(atoi(argv[3]), argv[4]);
+            return cmd_keys_set(arg_int(argv[3], 1, AJAZZ_KEY_SLOTS, "Slot"), argv[4]);
         if (strcmp(argv[2], "set-key") == 0 && argc >= 5)
-            return cmd_keys_set_key(atoi(argv[3]), argv[4], argc - 5, argv + 5);
+            return cmd_keys_set_key(arg_int(argv[3], 1, AJAZZ_KEY_SLOTS, "Slot"), argv[4], argc - 5, argv + 5);
         if (strcmp(argv[2], "set-fire") == 0 && argc == 6)
-            return cmd_keys_set_fire(atoi(argv[3]), atoi(argv[4]), atoi(argv[5]));
+            return cmd_keys_set_fire(arg_int(argv[3], 1, AJAZZ_KEY_SLOTS, "Slot"), arg_int(argv[4], 5, 255, "Interval"), arg_int(argv[5], 0, 255, "Number"));
         if (strcmp(argv[2], "list-functions") == 0) {
             print_key_functions();
             return 0;
         }
     } else if (strcmp(argv[1], "macro") == 0 && argc >= 3) {
         if (strcmp(argv[2], "set") == 0 && argc >= 6)
-            return cmd_macro_set(atoi(argv[3]), atoi(argv[4]), argc - 5, argv + 5);
+            return cmd_macro_set(arg_int(argv[3], 1, AJAZZ_KEY_SLOTS, "Slot"), arg_int(argv[4], 0, 65535, "Delay"), argc - 5, argv + 5);
     } else if (strcmp(argv[1], "reset") == 0 && argc >= 3 && strcmp(argv[2], "factory") == 0) {
         return cmd_factory_reset(argc == 4 && strcmp(argv[3], "-y") == 0);
     } else if (strcmp(argv[1], "watch") == 0) {

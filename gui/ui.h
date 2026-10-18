@@ -88,6 +88,10 @@ char *ui_find_mouse_image(const char *stem);
  * exactly that, so layout code can position things over it. NULL if not found. */
 GdkTexture *ui_mouse_texture(const char *stem, int w, int h);
 
+/* A small filled circle in a fixed colour, drawn directly (no per-widget CSS provider,
+ * which would pile up every time a list is rebuilt). */
+GtkWidget *ui_color_dot_new(const uint8_t rgb[3], int size);
+
 /* CSS-class toggle that is a no-op when already in the requested state. */
 void ui_set_class(GtkWidget *w, const char *css_class, gboolean on);
 

@@ -155,6 +155,8 @@ static void test_macro(void)
     CHECK(big[0].mode == 0x03 && big[1].mode == 0x13 && big[2].mode == 0x23);
     CHECK(big[0].payload[0] == 1);
 
+    CHECK(ajazz_macro_kind_valid(0x30) && ajazz_macro_kind_valid(0xa0) && !ajazz_macro_kind_valid(0x00) && !ajazz_macro_kind_valid(0xff));
+
     ajazz_report_t t;
     ajazz_build_reset_keys(&t);
     ajazz_key_slot_set_macro(&t, 3, AJAZZ_MACRO_N_TIMES, 1);

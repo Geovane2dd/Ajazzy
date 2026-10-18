@@ -17,6 +17,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <stdarg.h>
+#include <malloc.h>
 
 #include "app.h"
 #include "../devices/device.h"
@@ -176,6 +177,8 @@ static void on_nav_row_selected(GtkListBox *box, GtkListBoxRow *row, gpointer us
     if (!id)
         return;
     const PageDef *p = find_page(id);
+    if (!p)
+        return;
     app->current_page = p->id;
     adw_view_stack_set_visible_child_name(app->stack, p->id);
     gtk_label_set_text(GTK_LABEL(app->header_title), gettext(p->title));
@@ -196,20 +199,29 @@ typedef struct {
     gboolean read_battery;
     gboolean asleep;
     int access;     /* ajazz_access_t, filled in while not connected */
+    /* A freshly opened device is built privately by the worker and swapped into
+     * app->dev on the main thread (under hid_lock), so the UI never reads fields
+     * that a worker is in the middle of writing. */
+    gboolean opened;
+    gboolean close_old;
+    ajazz_dev_t nd;
 } ConnResult;
 
-/* Runs on a worker thread. Only touches app->dev (under hid_lock) and the
- * heap result; never GTK. */
+/* Runs on a worker thread. Reads app->dev only through the locked wrappers (plus
+ * dev.path, which only this serialized job and conn_done ever change) and never
+ * touches GTK. */
 static void conn_work(App *app, gpointer data)
 {
     ConnResult *r = data;
     r->battery = -1;
+    r->nd.fd = -1;
 
     if (g_getenv("AJAZZY_NO_DEVICE")) { /* dev aid: review the "no mouse" screens */
         r->access = g_getenv("AJAZZY_NO_DEVICE")[0] == 'p' ? AJAZZ_ACCESS_DENIED : AJAZZ_ACCESS_NO_DEVICE;
         return;
     }
 
+    gboolean use_new = FALSE;
     if (r->was_connected) {
         gboolean still_here = (access(app->dev.path, F_OK) == 0);
         gboolean better = FALSE;
@@ -219,39 +231,41 @@ static void conn_work(App *app, gpointer data)
             if (strcmp(best, app->dev.path) != 0)
                 better = TRUE;
             else
-                app->dev.charging = charging;
+                r->charging = charging;
         }
         if (still_here && !better) {
             r->now_connected = TRUE;
-            r->charging = app->dev.charging;
             goto battery;
         }
-        g_mutex_lock(&app->hid_lock);
-        ajazz_close(&app->dev);
-        g_mutex_unlock(&app->hid_lock);
+        r->close_old = TRUE;
         r->changed = TRUE;
     }
 
-    g_mutex_lock(&app->hid_lock);
-    int rc = ajazz_open(&app->dev);
-    g_mutex_unlock(&app->hid_lock);
-    r->now_connected = (rc == 0);
-    if (r->now_connected)
+    if (ajazz_open(&r->nd) == 0) {
+        r->opened = TRUE;
+        use_new = TRUE;
+        r->now_connected = TRUE;
         r->changed = TRUE;
-    else
+        r->charging = r->nd.charging;
+    } else {
         r->access = ajazz_probe_access();
-    r->charging = r->now_connected && app->dev.charging;
+    }
 
 battery:
     /* The dongle answers the identity query even while the mouse sleeps, but every
      * setting query then goes unanswered -- so probe with one of those first, and
      * only read the battery (a second over-the-air round trip) if the mouse answers. */
     if (r->now_connected && r->read_battery) {
-        ajazz_report_t probe;
-        r->asleep = ajazz_query_mt(app, AJAZZ_QUERY_REPORT_RATE, &probe, 500) != 0;
+        ajazz_report_t probe, reply;
+        int rc;
+        /* a device nobody else can reach yet is queried directly; the live one under the lock */
+        rc = use_new ? ajazz_query(&r->nd, AJAZZ_QUERY_REPORT_RATE, &probe, 500)
+                     : ajazz_query_mt(app, AJAZZ_QUERY_REPORT_RATE, &probe, 500);
+        r->asleep = rc != 0;
         if (!r->asleep) {
-            ajazz_report_t reply;
-            if (ajazz_query_mt(app, AJAZZ_QUERY_DEVICE_INFO, &reply, 1000) == 0)
+            rc = use_new ? ajazz_query(&r->nd, AJAZZ_QUERY_DEVICE_INFO, &reply, 1000)
+                         : ajazz_query_mt(app, AJAZZ_QUERY_DEVICE_INFO, &reply, 1000);
+            if (rc == 0)
                 r->battery = reply.payload[AJAZZ_BATTERY_PAYLOAD_OFFSET];
         }
     }
@@ -289,6 +303,20 @@ static void conn_done(App *app, gpointer data)
 {
     ConnResult *r = data;
     app->connect_busy = FALSE;
+
+    /* swap the device handle on the main thread, waiting for any in-flight query */
+    if (r->close_old || r->opened) {
+        g_mutex_lock(&app->hid_lock);
+        if (app->dev.fd >= 0)
+            ajazz_close(&app->dev);
+        if (r->opened) {
+            app->dev = r->nd;
+            r->nd.fd = -1; /* ownership moved */
+        }
+        g_mutex_unlock(&app->hid_lock);
+    }
+    if (r->nd.fd >= 0) /* opened but not adopted (shouldn't happen) */
+        ajazz_close(&r->nd);
 
     gboolean was = app->connected;
     app->connected = r->now_connected;
@@ -646,11 +674,21 @@ static void on_refresh_clicked(GtkButton *b, gpointer user_data)
     on_tray_refresh(user_data);
 }
 
+/* glibc keeps freed memory around; after the big allocations of startup, or when the
+ * window goes to the tray, hand it back so a background app stays small. */
+static gboolean trim_heap_cb(gpointer unused)
+{
+    (void)unused;
+    malloc_trim(0);
+    return G_SOURCE_REMOVE;
+}
+
 static gboolean on_window_close_request(GtkWindow *win, gpointer user_data)
 {
     App *app = user_data;
     if (app->settings_close_to_tray && app->tray) {
         gtk_widget_set_visible(GTK_WIDGET(win), FALSE);
+        g_timeout_add_seconds(1, trim_heap_cb, NULL);
         return TRUE;
     }
     g_application_quit(G_APPLICATION(app->gtk_app));
@@ -786,6 +824,7 @@ static void on_activate(GtkApplication *gtk_app, gpointer user_data)
     update_content_state(app);
     connection_poll(app);
     g_timeout_add_seconds(2, connection_tick, app);
+    g_timeout_add_seconds(8, trim_heap_cb, NULL); /* after the first refresh burst has settled */
 
     if (snap_dir) {
         /* page transitions need frames to finish; a headless capture may not get them */
@@ -837,6 +876,8 @@ static const char *pick_localedir(void)
 
 int main(int argc, char **argv)
 {
+    /* a handful of worker threads would otherwise each grow their own malloc arena */
+    mallopt(M_ARENA_MAX, 2);
     setlocale(LC_ALL, "");
     bindtextdomain("ajazzy", pick_localedir());
     bind_textdomain_codeset("ajazzy", "UTF-8");
@@ -849,7 +890,7 @@ int main(int argc, char **argv)
     g_mutex_init(&app.hid_lock);
 
     AdwApplication *gtk_app = adw_application_new(AJAZZ_APP_ID,
-        g_getenv("AJAZZY_SNAPSHOT_DIR") ? G_APPLICATION_NON_UNIQUE : G_APPLICATION_DEFAULT_FLAGS); /* dev captures must not hand off to a running copy */
+        (g_getenv("AJAZZY_SNAPSHOT_DIR") || g_getenv("AJAZZY_NEW_INSTANCE")) ? G_APPLICATION_NON_UNIQUE : G_APPLICATION_DEFAULT_FLAGS); /* dev runs must not hand off to a running copy */
     g_signal_connect(gtk_app, "activate", G_CALLBACK(on_activate), &app);
 
     int status = g_application_run(G_APPLICATION(gtk_app), argc, argv);

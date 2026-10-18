@@ -390,20 +390,54 @@ GdkTexture *ui_mouse_texture(const char *stem, int w, int h)
     char *path = ui_find_mouse_image(stem);
     if (!path)
         return NULL;
-    GdkPixbuf *pb = gdk_pixbuf_new_from_file_at_scale(path, w, h, TRUE, NULL);
+    /* Decoded with cairo's own PNG reader on purpose: gdk-pixbuf goes through the
+     * glycin sandbox, which starts a helper process (bwrap + loader, ~10 MB) just to
+     * read a 100 KB file. */
+    cairo_surface_t *src = cairo_image_surface_create_from_png(path);
     g_free(path);
-    if (!pb)
+    if (cairo_surface_status(src) != CAIRO_STATUS_SUCCESS) {
+        cairo_surface_destroy(src);
         return NULL;
-    if (!gdk_pixbuf_get_has_alpha(pb)) {
-        GdkPixbuf *rgba = gdk_pixbuf_add_alpha(pb, FALSE, 0, 0, 0);
-        g_object_unref(pb);
-        pb = rgba;
     }
-    /* straight-alpha RGBA straight from the pixbuf's buffer, which the bytes object keeps alive */
-    GBytes *bytes = g_bytes_new_with_free_func(gdk_pixbuf_read_pixels(pb),
-        (gsize)gdk_pixbuf_get_rowstride(pb) * (gsize)gdk_pixbuf_get_height(pb), (GDestroyNotify)g_object_unref, pb);
-    GdkTexture *tex = gdk_memory_texture_new(gdk_pixbuf_get_width(pb), gdk_pixbuf_get_height(pb),
-        GDK_MEMORY_R8G8B8A8, bytes, (gsize)gdk_pixbuf_get_rowstride(pb));
+    int sw = cairo_image_surface_get_width(src), sh = cairo_image_surface_get_height(src);
+    double scale = MIN((double)w / sw, (double)h / sh);
+    int dw = MAX(1, (int)(sw * scale)), dh = MAX(1, (int)(sh * scale));
+
+    cairo_surface_t *dst = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, dw, dh);
+    cairo_t *cr = cairo_create(dst);
+    cairo_scale(cr, (double)dw / sw, (double)dh / sh);
+    cairo_set_source_surface(cr, src, 0, 0);
+    cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_BEST);
+    cairo_paint(cr);
+    cairo_destroy(cr);
+    cairo_surface_destroy(src);
+    cairo_surface_flush(dst);
+
+    gsize stride = (gsize)cairo_image_surface_get_stride(dst);
+    GBytes *bytes = g_bytes_new(cairo_image_surface_get_data(dst), stride * (gsize)dh);
+    cairo_surface_destroy(dst);
+    /* cairo ARGB32 is premultiplied BGRA in memory on little-endian machines */
+    GdkTexture *tex = gdk_memory_texture_new(dw, dh, GDK_MEMORY_B8G8R8A8_PREMULTIPLIED, bytes, stride);
     g_bytes_unref(bytes);
     return tex;
+}
+
+static void draw_color_dot(GtkDrawingArea *a, cairo_t *cr, int w, int h, gpointer data)
+{
+    (void)a;
+    const uint8_t *rgb = data;
+    cairo_arc(cr, w / 2.0, h / 2.0, MIN(w, h) / 2.0, 0, 2 * G_PI);
+    cairo_set_source_rgb(cr, rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0);
+    cairo_fill(cr);
+}
+
+GtkWidget *ui_color_dot_new(const uint8_t rgb[3], int size)
+{
+    GtkWidget *dot = gtk_drawing_area_new();
+    gtk_widget_set_size_request(dot, size, size);
+    gtk_widget_set_valign(dot, GTK_ALIGN_CENTER);
+    gtk_widget_set_halign(dot, GTK_ALIGN_CENTER);
+    uint8_t *copy = g_memdup2(rgb, 3);
+    gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(dot), draw_color_dot, copy, g_free);
+    return dot;
 }
