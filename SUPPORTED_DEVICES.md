@@ -9,7 +9,7 @@ If you own one of the untested models, please try it and open a PR — see [Addi
 | **AJ179 V2 MAX** | `N625` | USB, 2.4G | **Confirmed** — DPI, report rate, RGB, sensor/power, buttons, battery, macros | `devices/aj179v2max.h` |
 | AJ139 PRO | `M129`, `M139` | USB, 2.4G | Untested | `devices/aj139pro.h` |
 | AJ139 V2 PRO | `M139` | USB, 2.4G | Untested | `devices/aj139v2pro.h` |
-| AJ159 | `M620`, `P630` | USB, 2.4G | Untested | `devices/aj159.h` |
+| AJ159 | `M620`, `P630` | USB, 2.4G | Partially tested: `M620` on dongle `248A:5B2F` uses the feature-report protocol (`protocol/feature.h`); detection and battery confirmed, settings writes checked by hand | `devices/aj159.h` |
 | AJ159 MC | `M630`, `M620` | USB, 2.4G | Untested | `devices/aj159mc.h` |
 | AJ159P MC | `N620` | USB, 2.4G | Untested | `devices/aj159pmc.h` |
 | AJ179 | `M179`, `P179`, `M184` | USB, 2.4G | Untested | `devices/aj179.h` |

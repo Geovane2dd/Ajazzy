@@ -13,6 +13,7 @@
 
 #include "transport.h"
 #include "../devices/registry.h"
+#include "feature.h"
 
 /* The AJ179 V2 MAX's configuration interface (MI_02) does not advertise a
  * vendor usage page in its report descriptor -- it uses Generic Desktop
@@ -20,7 +21,7 @@
  * 32-byte OUTPUT report: "Report Count(32) ... Output(...)", i.e. the
  * byte sequence 95 20 ... 91 in the descriptor. This matches the 32 byte
  * reports observed on the wire in the USB capture. */
-static int is_config_interface(int fd)
+static int is_config_interface(int fd, int *feature)
 {
     struct hidraw_report_descriptor rpt_desc;
     int size = 0;
@@ -33,6 +34,9 @@ static int is_config_interface(int fd)
     if (ioctl(fd, HIDIOCGRDESC, &rpt_desc) < 0)
         return 0;
 
+    *feature = ajazz_feature_is_interface(rpt_desc.value, size);
+    if (*feature)
+        return 1;
     for (int i = 0; i + 2 < size; i++) {
         if (rpt_desc.value[i] == 0x95 &&
             rpt_desc.value[i + 1] == AJAZZ_REPORT_LEN &&
@@ -50,6 +54,7 @@ typedef struct {
     uint16_t pid;
     const char *name;
     const char *mode; /* "USB", "2.4G", or NULL if unlisted */
+    int feature;      /* 1 = feature-report 0x0C protocol (see feature.h) */
 } ajazz_candidate_t;
 
 /* Scans /dev for every present config-interface hidraw node. When the
@@ -92,8 +97,10 @@ static int ajazz_scan(ajazz_candidate_t *candidates, int max)
         uint16_t pid = (uint16_t)info.product;
         const char *name = ajazz_lookup_name(vid, pid);
 
-        if (name && is_config_interface(fd)) {
+        int feature = 0;
+        if (name && is_config_interface(fd, &feature)) {
             ajazz_candidate_t *c = &candidates[n++];
+            c->feature = feature;
             snprintf(c->path, sizeof(c->path), "%s", path);
             c->vid = vid;
             c->pid = pid;
@@ -179,6 +186,7 @@ int ajazz_open(ajazz_dev_t *dev)
             snprintf(dev->name, sizeof(dev->name), "%s", best->name);
             snprintf(dev->mode, sizeof(dev->mode), "%s", best->mode ? best->mode : "");
             dev->charging = charging;
+            dev->feature = best->feature;
 
             dev->dev_id[0] = '\0';
             dev->confirmed = 0;
@@ -278,8 +286,21 @@ void ajazz_close(ajazz_dev_t *dev)
  * short write/read on this device class) -- the retry here is only for
  * EINTR, a signal landing mid-syscall, which is routine and not a
  * reason to give up. */
+/* Settings-cache key for feature-protocol mice: the dev_id, so the USB and
+ * 2.4G PIDs of the same mouse share one cache. */
+static const char *feature_key(const ajazz_dev_t *dev)
+{
+    static char key[16];
+    if (dev->dev_id[0])
+        return dev->dev_id;
+    snprintf(key, sizeof(key), "%04x-%04x", dev->vid, dev->pid);
+    return key;
+}
+
 int ajazz_send(ajazz_dev_t *dev, const ajazz_report_t *r)
 {
+    if (dev->feature)
+        return ajazz_feature_send(dev->fd, feature_key(dev), r);
     ssize_t n;
     do {
         n = write(dev->fd, r, AJAZZ_REPORT_LEN);
@@ -343,6 +364,8 @@ static int recv_until(ajazz_dev_t *dev, ajazz_report_t *reply, uint8_t want_fami
 
 int ajazz_query(ajazz_dev_t *dev, uint8_t query_id, ajazz_report_t *reply, int timeout_ms)
 {
+    if (dev->feature)
+        return ajazz_feature_query(dev->fd, feature_key(dev), query_id, reply);
     ajazz_report_t req;
     ajazz_build_query(&req, query_id);
 
@@ -365,6 +388,8 @@ int ajazz_send_and_wait(ajazz_dev_t *dev, const ajazz_report_t *r, int timeout_m
 
     if (ajazz_send(dev, r) != 0)
         return -1;
+    if (dev->feature)
+        return 0; /* this protocol has no ack */
 
     return recv_until(dev, &reply, r->family, timeout_ms);
 }

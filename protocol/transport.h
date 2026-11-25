@@ -25,6 +25,9 @@ typedef struct {
                              is mostly redundant with mode, but is scanned
                              independently so it stays correct even if the
                              preference above ever changes. */
+    int feature;         /* 1 = settings go through feature report 0x0C on
+                             MI_01 (device_type >= 200 models, e.g. AJ159
+                             M620 on 248a:5b2f); see protocol/feature.h */
 } ajazz_dev_t;
 
 /* Scans /dev/hidraw* for a known AJAZZ VID/PID whose report descriptor
