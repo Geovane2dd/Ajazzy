@@ -9,7 +9,7 @@ CLI_BIN = ajazzyctl
 GUI_BIN = ajazzy-gui
 GETTEXT_DOMAIN = ajazzy
 
-GUI_CFLAGS := $(shell pkg-config --cflags gtk4 libadwaita-1 2>/dev/null) -DLOCALEDIR=\"$(CURDIR)/locale\" -DICONDIR=\"$(CURDIR)/gui/icons\" -DIMAGEDIR=\"$(CURDIR)/gui/images\"
+GUI_CFLAGS := $(shell pkg-config --cflags gtk4 libadwaita-1 2>/dev/null) '-DLOCALEDIR="$(CURDIR)/locale"' '-DICONDIR="$(CURDIR)/gui/icons"' '-DIMAGEDIR="$(CURDIR)/gui/images"'
 GUI_LIBS := $(shell pkg-config --libs gtk4 libadwaita-1 2>/dev/null) -lm
 HAVE_GUI := $(shell pkg-config --exists gtk4 libadwaita-1 2>/dev/null && echo yes)
 HAVE_GETTEXT := $(shell which msgfmt xgettext >/dev/null 2>&1 && echo yes)
