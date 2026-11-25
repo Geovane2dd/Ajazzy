@@ -2,7 +2,7 @@ CC ?= cc
 CFLAGS ?= -O2 -Wall -Wextra -std=c11
 PREFIX ?= /usr/local
 
-CORE_SRCS = protocol/hid.c protocol/transport.c devices/registry.c
+CORE_SRCS = protocol/hid.c protocol/transport.c protocol/feature.c devices/registry.c
 CORE_OBJS = $(CORE_SRCS:.c=.o)
 
 CLI_BIN = ajazzyctl
@@ -48,8 +48,12 @@ else
 	@echo "gettext tools not found, skipping translation build (GUI will fall back to English)."
 endif
 
-test: tests/test_protocol
+test: tests/test_protocol tests/test_feature
 	./tests/test_protocol
+	./tests/test_feature
+
+tests/test_feature: tests/test_feature.c protocol/feature.c protocol/feature.h protocol/hid.c protocol/hid.h
+	$(CC) $(CFLAGS) -o $@ tests/test_feature.c protocol/feature.c protocol/hid.c
 
 tests/test_protocol: tests/test_protocol.c protocol/hid.c protocol/hid.h
 	$(CC) $(CFLAGS) -o $@ tests/test_protocol.c protocol/hid.c
